@@ -1,9 +1,18 @@
+// 2-D Vector calculations and related functions.
+//
+// Specifically written for approximate integer calculations. I'm not sure why I
+// made most of them as templates, cause `int` is what I use all the time. I
+// guess I just like the opportunity cost of templates. :D
+//
+
 #include <array>
 #include <iostream>
-
-#include "math.hpp"
+#include <cmath>
 
 using namespace std;
+
+template<typename Tp>
+constexpr Tp sq(Tp x) { return x * x; }
 
 template<typename Tp>
 struct Vec2 : array<Tp, 2>

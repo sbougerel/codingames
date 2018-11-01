@@ -3,73 +3,27 @@
 #include <vector>
 #include <algorithm>
 #include <array>
+#include <cmath>
 
 using namespace std;
 
 template<typename Tp>
-struct Vec2 : array<Tp, 2>
-{
-    typedef array<Tp, 2> Base;
-
-    Vec2() {}
-    Vec2(Tp a, Tp b)
-    { Base::operator[](0) = a; Base::operator[](1) = b; }
-
-    Tp x() const { return Base::operator[](0); }
-    Tp& x() { return Base::operator[](0); }
-
-    Tp y() const { return Base::operator[](1); }
-    Tp& y() { return Base::operator[](1); }
-};
+constexpr Tp sq(Tp x) { return x * x; }
 
 template<typename Tp>
-inline ostream& operator<< (ostream& o, const Vec2<Tp>& a) {
-  return o << "Vec2{" << a.x() << ", " << a.y() << "}";
+inline Tp cosi(Tp a, Tp unit) {
+    double angle = (double)a;
+    return static_cast<Tp>(cos(angle*M_PI/180.0) * (double)unit);
 }
 
-template<typename Tp>
-inline Vec2<Tp> operator+ (const Vec2<Tp>& a, const Vec2<Tp>& b)
-{ return {a.x() + b.x(), a.y() + b.y()}; }
-
-template<typename Tp>
-inline Vec2<Tp> operator- (const Vec2<Tp>& a, const Vec2<Tp>& b)
-{ return {a.x() - b.x(), a.y() - b.y()}; }
-
-template<typename Tp>
-inline Vec2<Tp> operator- (const Vec2<Tp>& a)
-{ return {-a.x(), -a.y()}; }
-
-template<typename Tp>
-inline Vec2<Tp> operator* (const Vec2<Tp>& a, Tp factor)
-{ return {a.x() * factor, a.y() * factor}; }
-
-template<typename Tp>
-inline Vec2<Tp> operator/ (const Vec2<Tp>& a, Tp factor)
-{ return {a.x() / factor, a.y() / factor}; }
-
-template<typename Tp>
-inline Tp distsq(const Vec2<Tp>& a, const Vec2<Tp>& b)
-{ return sq(a.x() - b.x()) + sq(a.y() - b.y()); }
-
-template<typename Tp>
-inline Tp magsq(const Vec2<Tp>& a)
-{ return sq(a.x()) + sq(a.y()); }
-
-template<typename Tp>
-inline Tp mag3(const Vec2<Tp>& a)
-{
-  Tp S = magsq(a);
-  Tp x = abs(a.x()) + abs(a.y());
-  x = (sq(x) + S) / (2 * x + 1);
-  x = (sq(x) + S) / (2 * x + 1);
-  return (sq(x) + S) / (2 * x + 1);
+inline void thrust(int x, int y, int t) {
+    if (t > 100) t = 100;
+    if (t < 0) t = 0;
+    cout << x << " " << y << " " << t << endl;
 }
 
-template<typename Tp>
-inline Vec2<Tp> norm3(const Vec2<Tp>& a, Tp norm)
-{
-  Tp x = mag3(a);
-  return {(a.x() * norm) / (x + 1), (a.y() * norm) / (x + 1)};
+inline void boost(int x, int y) {
+    cout << x << " " << y << " BOOST" << endl;
 }
 
 
@@ -94,15 +48,33 @@ int main()
         int opponentY;
         cin >> opponentX >> opponentY; cin.ignore();
 
-        int thrust;
-        if (nextCheckpointAngle > 100 || nextCheckpointAngle < -100)
-            cout << nextCheckpointX << " " << nextCheckpointY << " 0" << endl;
-        else
-            if (!boost_used && (nextCheckpointAngle < 10 && nextCheckpointAngle > -10) && nextCheckpointDist > 5000) {
-                cout << nextCheckpointX << " " << nextCheckpointY << " BOOST" << endl;
+        if (nextCheckpointDist < 600) {
+            if (abs(nextCheckpointAngle) < 70)
+                thrust(nextCheckpointX, nextCheckpointY, cosi(nextCheckpointAngle, 100) - 20);
+            else
+                thrust(nextCheckpointX, nextCheckpointY, 0);
+        }
+        else if (nextCheckpointDist < 1000) {
+            if (abs(nextCheckpointAngle) < 90)
+                thrust(nextCheckpointX, nextCheckpointY, cosi(nextCheckpointAngle, 100));
+            else
+                thrust(nextCheckpointX, nextCheckpointY, 0);
+        }
+        else if (nextCheckpointDist < 3000) {
+            if (abs(nextCheckpointAngle) < 100)
+                thrust(nextCheckpointX, nextCheckpointY, cosi(nextCheckpointAngle, 100) + 30);
+            else
+                thrust(nextCheckpointX, nextCheckpointY, 0);
+        }
+        else {
+            if (abs(nextCheckpointAngle) < 30 && !boost_used) {
+                boost(nextCheckpointX, nextCheckpointY);
                 boost_used = true;
             }
+            else if (abs(nextCheckpointAngle) < 100)
+                thrust(nextCheckpointX, nextCheckpointY, cosi(nextCheckpointAngle, 100) + 50);
             else
-                cout << nextCheckpointX << " " << nextCheckpointY << " 100" << endl;
+                thrust(nextCheckpointX, nextCheckpointY, 0);
+        }
     }
 }
