@@ -9,58 +9,48 @@
 #include <iostream>
 #include <cmath>
 
+#include "math.hpp"
+
 using namespace std;
 
-template<typename Tp>
-constexpr Tp sq(Tp x) { return x * x; }
-
-template<typename Tp>
-struct Vec2 : array<Tp, 2>
+struct Vec2 : array<int, 2>
 {
-    typedef array<Tp, 2> Base;
+    typedef array<int, 2> Base;
 
     Vec2() {}
-    Vec2(Tp a, Tp b)
+    Vec2(int a, int b)
     { Base::operator[](0) = a; Base::operator[](1) = b; }
 
-    Tp x() const { return Base::operator[](0); }
-    Tp& x() { return Base::operator[](0); }
+    int x() const { return Base::operator[](0); }
+    int& x() { return Base::operator[](0); }
 
-    Tp y() const { return Base::operator[](1); }
-    Tp& y() { return Base::operator[](1); }
+    int y() const { return Base::operator[](1); }
+    int& y() { return Base::operator[](1); }
 };
 
-template<typename Tp>
-inline ostream& operator<< (ostream& o, const Vec2<Tp>& a) {
+inline ostream& operator<< (ostream& o, const Vec2& a) {
   return o << "Vec2{" << a.x() << ", " << a.y() << "}";
 }
 
-template<typename Tp>
-inline Vec2<Tp> operator+ (const Vec2<Tp>& a, const Vec2<Tp>& b)
+inline Vec2 operator+ (const Vec2& a, const Vec2& b)
 { return {a.x() + b.x(), a.y() + b.y()}; }
 
-template<typename Tp>
-inline Vec2<Tp> operator- (const Vec2<Tp>& a, const Vec2<Tp>& b)
+inline Vec2 operator- (const Vec2& a, const Vec2& b)
 { return {a.x() - b.x(), a.y() - b.y()}; }
 
-template<typename Tp>
-inline Vec2<Tp> operator- (const Vec2<Tp>& a)
+inline Vec2 operator- (const Vec2& a)
 { return {-a.x(), -a.y()}; }
 
-template<typename Tp>
-inline Vec2<Tp> operator* (const Vec2<Tp>& a, Tp factor)
+inline Vec2 operator* (const Vec2& a, int factor)
 { return {a.x() * factor, a.y() * factor}; }
 
-template<typename Tp>
-inline Vec2<Tp> operator/ (const Vec2<Tp>& a, Tp factor)
+inline Vec2 operator/ (const Vec2& a, int factor)
 { return {a.x() / factor, a.y() / factor}; }
 
-template<typename Tp>
-inline Tp distsq(const Vec2<Tp>& a, const Vec2<Tp>& b)
+inline int distsq(const Vec2& a, const Vec2& b)
 { return sq(a.x() - b.x()) + sq(a.y() - b.y()); }
 
-template<typename Tp>
-inline Tp magsq(const Vec2<Tp>& a)
+inline int magsq(const Vec2& a)
 { return sq(a.x()) + sq(a.y()); }
 
 // Square root can't be computed on integers, but there's a fast convergent
@@ -69,11 +59,10 @@ inline Tp magsq(const Vec2<Tp>& a)
 //   - start at Manhattan magnitude (a.k.a taxicab metric)
 //   - we know values are necessarily positive, so add +1 to avoid div by 0
 //   - do 3 iterations of Newton's method
-template<typename Tp>
-inline Tp mag3(const Vec2<Tp>& a)
+inline int mag3(const Vec2& a)
 {
-  Tp S = magsq(a);
-  Tp x = abs(a.x()) + abs(a.y());
+  int S = magsq(a);
+  int x = abs(a.x()) + abs(a.y());
   x = (sq(x) + S) / (2 * x + 1);
   x = (sq(x) + S) / (2 * x + 1);
   return (sq(x) + S) / (2 * x + 1);
@@ -84,9 +73,8 @@ inline Tp mag3(const Vec2<Tp>& a)
 //   - avoid overflows/underflows by computing divisions last
 //   - avoid divisions by 0 with +1 since all values in the diviser are
 //     guaranteed positives
-template<typename Tp>
-inline Vec2<Tp> norm3(const Vec2<Tp>& a, Tp norm)
+inline Vec2 norm3(const Vec2& a, int norm)
 {
-  Tp x = mag3(a);
+  int x = mag3(a);
   return {(a.x() * norm) / (x + 1), (a.y() * norm) / (x + 1)};
 }
