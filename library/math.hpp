@@ -45,15 +45,24 @@ inline int nirel(int a) {
   return (a & t);
 }
 
-// isgn() returns 0 is `gate` is 0, `boost` if `gate` is strictly positive,
-// `-boost` if `gate` is strictly negative for integers:
+// isgn() returns `boost` if `gate` is positive or zero, and `-boost` if `gate`
+// is negative for integers:
 //
-//     if (gate > 0) return boost;
+//     if (gate >= 0) return boost;
 //     if (gate < 0) return -boost;
-//     else return 0;
 inline int isgn(int gate, int boost) {
   int t = gate >> (sizeof(int) * 8 - 1);
   return (boost|t) - t + (t & (-boost));
+}
+
+// isgv() returns `pos` if `gate` is positive or zero, and `neg` if `gate` is
+// strictly negative for integers:
+//
+//     if (gate >= 0) return pos;
+//     if (gate < 0) return neg;
+inline int isgv(int gate, int pos, int neg) {
+  int t = gate >> (sizeof(int) * 8 - 1);
+  return (pos|t) - t + (t & neg);
 }
 
 // amp() returns `boost` if `gate` is a positive integer or 0, and returns
@@ -111,23 +120,22 @@ namespace details {
   }
 }
 
-// Return the sine value for `angle` in degree, multipled by arbitrary
-// precision. This method uses the first degree of the Taylor serie for either
-// sin or cos, since the first degree is only precise until (-45, 45). After
-// errors accumulate quickly:
+// Return the sine value for an `angle` in degree, multipled by arbitrary
+// precision. This method is only defined for the interval within (-450, 450).
 //
-//   1. reduce to 360
-//   2. map (-360, 360) to (-90, 90) with rectifiers
-//   3. use cos or sine first taylor order
+// It uses only the first degree of the Taylor serie for either sin or cos,
+// since the first degree is only precise until (-45, 45). It should have less
+// that 0.5% of error.
+//
+//   1. map (-450, 450) to (-90, 90) with rectifiers
+//   2. use cos or sine first taylor order
 inline int isin(int angle, int scale) {
-  angle = angle % 360;
-  angle = angle
-    - 2 * irel(angle - 90) - 2 * nirel(angle + 90)
-    + 2 * irel(angle - 270) + 2 * nirel(angle + 270);
-  if (abs(angle) > 45) return details::do_cos(angle, scale);
-  else return details::do_sin(angle, scale);
+  angle = angle + 2 * (- irel(angle - 90) - nirel(angle + 90)
+                       + irel(angle - 270) + nirel(angle + 270));
+  return isgv(abs(angle) - 45, details::do_cos(angle, scale), details::do_sin(angle, scale));
 }
 
+// This method is only defined for the interval within (-360, 360).
 inline int icos(int angle, int scale) {
   return isin(90 - angle, scale);
 }
