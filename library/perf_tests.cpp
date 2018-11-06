@@ -3,6 +3,7 @@
 
 #define BOOST_TEST_MODULE Approximate Integer Performance
 #include <boost/test/included/unit_test.hpp>
+
 #include <cmath>
 #include <ctime>
 #include <chrono>
@@ -75,17 +76,6 @@ BOOST_AUTO_TEST_CASE(test_sine){
   std::vector<double> rad_shuffle;
   for (size_t i= 0; i < N; ++i) rad_shuffle.push_back(double(deg_shuffle[i]) * M_PI / 180.0);
 
-  std::chrono::duration<double> elapsed_my;
-  {
-    int j = 0;
-    auto start = std::chrono::high_resolution_clock::now();
-    for (int i : deg_shuffle) { j += isin(i, 1000); }
-    auto end = std::chrono::high_resolution_clock::now();
-    elapsed_my = end-start;
-    std::cout << "isin() elapsed time for " << N << " iterations:\t"
-              << elapsed_my.count() << "s (" << j << ")" << std::endl;
-  }
-
   std::chrono::duration<double> elapsed_std;
   {
     double j = 0;
@@ -95,6 +85,17 @@ BOOST_AUTO_TEST_CASE(test_sine){
     elapsed_std = end-start;
     std::cout << "std::sin() elapsed time for " << N << " iterations:\t"
               << elapsed_std.count() << "s (" << j << ")" << std::endl;
+  }
+
+  std::chrono::duration<double> elapsed_my;
+  {
+    int j = 0;
+    auto start = std::chrono::high_resolution_clock::now();
+    for (int i : deg_shuffle) { j += isin(i, 1000); }
+    auto end = std::chrono::high_resolution_clock::now();
+    elapsed_my = end-start;
+    std::cout << "isin() elapsed time for " << N << " iterations:\t"
+              << elapsed_my.count() << "s (" << j << ")" << std::endl;
   }
 
   BOOST_CHECK_GT(elapsed_std.count(), elapsed_my.count());

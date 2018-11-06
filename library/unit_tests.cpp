@@ -45,11 +45,14 @@ BOOST_AUTO_TEST_CASE(test_ihyp){
   // Will overflow after
 }
 
-constexpr const int SINE_PRECISION = 10000;
+int error_isin_stdsin(int angle, int precision) {
+  return iabs(isin(angle, precision) - int(std::sin(angle * M_PI / 180.0) * precision));
+}
 
 BOOST_AUTO_TEST_CASE(test_isin){
+  constexpr const int SINE_PRECISION = 10000;
   BOOST_CHECK_EQUAL(isin(0, SINE_PRECISION), 0);
-  BOOST_CHECK_EQUAL(isin(90, 100), 1 * 100);
+  BOOST_CHECK_EQUAL(isin(90, SINE_PRECISION), 1 * SINE_PRECISION);
   BOOST_CHECK_EQUAL(isin(-90, SINE_PRECISION), -1 * SINE_PRECISION);
   BOOST_CHECK_EQUAL(isin(180, SINE_PRECISION), 0);
   BOOST_CHECK_EQUAL(isin(-180, SINE_PRECISION), 0);
@@ -57,12 +60,12 @@ BOOST_AUTO_TEST_CASE(test_isin){
   BOOST_CHECK_EQUAL(isin(-270, SINE_PRECISION), 1 * SINE_PRECISION);
   BOOST_CHECK_EQUAL(isin(360, SINE_PRECISION), 0);
   BOOST_CHECK_EQUAL(isin(-360, SINE_PRECISION), 0);
-  BOOST_CHECK_LT(iabs(isin(30, SINE_PRECISION) - int(std::sin(30.0 * M_PI / 180.0) * SINE_PRECISION)), 50);
-  BOOST_CHECK_LT(iabs(isin(-30, SINE_PRECISION) - int(std::sin(-30.0 * M_PI / 180.0) * SINE_PRECISION)), 50);
-  BOOST_CHECK_LT(iabs(isin(120, SINE_PRECISION) - int(std::sin(120.0 * M_PI / 180.0) * SINE_PRECISION)), 50);
-  BOOST_CHECK_LT(iabs(isin(-120, SINE_PRECISION) - int(std::sin(-120.0 * M_PI / 180.0) * SINE_PRECISION)), 50);
-  BOOST_CHECK_LT(iabs(isin(210, SINE_PRECISION) - int(std::sin(210.0 * M_PI / 180.0) * SINE_PRECISION)), 50);
-  BOOST_CHECK_LT(iabs(isin(-210, SINE_PRECISION) - int(std::sin(-210.0 * M_PI / 180.0) * SINE_PRECISION)), 50);
-  BOOST_CHECK_LT(iabs(isin(300, SINE_PRECISION) - int(std::sin(300.0 * M_PI / 180.0) * SINE_PRECISION)), 50);
-  BOOST_CHECK_LT(iabs(isin(-300, SINE_PRECISION) - int(std::sin(-300.0 * M_PI / 180.0) * SINE_PRECISION)), 50);
+  BOOST_CHECK_LT(error_isin_stdsin(30, SINE_PRECISION), 100);
+  BOOST_CHECK_LT(error_isin_stdsin(-30, SINE_PRECISION), 100);
+  BOOST_CHECK_LT(error_isin_stdsin(120, SINE_PRECISION), 100);
+  BOOST_CHECK_LT(error_isin_stdsin(-120, SINE_PRECISION), 100);
+  BOOST_CHECK_LT(error_isin_stdsin(210, SINE_PRECISION), 100);
+  BOOST_CHECK_LT(error_isin_stdsin(-210, SINE_PRECISION), 100);
+  BOOST_CHECK_LT(error_isin_stdsin(300, SINE_PRECISION), 100);
+  BOOST_CHECK_LT(error_isin_stdsin(-300, SINE_PRECISION), 100);
 }

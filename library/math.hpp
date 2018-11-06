@@ -107,16 +107,16 @@ inline int ihyp(const int adjacent, const int opposite)
 }
 
 namespace details {
+  template<int Factor>
   inline int do_sin(int angle, int scale) {
-    constexpr const int FACTOR_1 = 57; // similar to 180 / M_PI
-    constexpr const int FACTOR_2 = 6 * sq<FACTOR_1>();
-    return (((scale * angle) / FACTOR_1) * (FACTOR_2 - sq(angle))) / (FACTOR_2);
+    constexpr const int Factor2 = 6 * sq<Factor>();
+    return (((scale * angle) / Factor) * (Factor2 - sq(angle))) / Factor2;
   }
 
+  template<int Factor>
   inline int do_cos(int angle, int scale) {
-    constexpr const int FACTOR_1 = 57; // similar to 180 / M_PI
-    constexpr const int FACTOR_2 = 2 * sq<FACTOR_1>();
-    return isgn(angle, (scale * FACTOR_2 - scale * sq(90 - abs(angle))) / FACTOR_2);
+    constexpr const int Factor2 = 2 * sq<Factor>();
+    return (scale * Factor2 - scale * sq(angle)) / Factor2;
   }
 }
 
@@ -127,12 +127,36 @@ namespace details {
 // since the first degree is only precise until (-45, 45). It should have less
 // that 0.5% of error.
 //
-//   1. map (-450, 450) to (-90, 90) with rectifiers
-//   2. use cos or sine first taylor order
-inline int isin(int angle, int scale) {
+inline int isin_(int angle, int scale) {
   angle = angle + 2 * (- irel(angle - 90) - nirel(angle + 90)
                        + irel(angle - 270) + nirel(angle + 270));
-  return isgv(abs(angle) - 45, details::do_cos(angle, scale), details::do_sin(angle, scale));
+  // 57 ~= 180 / M_PI
+  return isgv(abs(angle) - 45, isgn(angle, details::do_cos<57>(90 - abs(angle), scale)), details::do_sin<57>(angle, scale));
+}
+
+// Return the sine value for an `angle` in degree, multipled by arbitrary
+// precision.
+//
+// It does it by mapping degree angles into into 512 values. The first 7 bits
+// are the angle within a 45 degree quadrant. The next 3 bits control the choice
+// of sign and operations to perform: sin(x) or cos(x) are each more precise
+// when x is close to 0.
+//
+// It should have less than 1% of error.
+inline int isin(int angle, int scale) {
+  int aa = ( abs(angle) * 128 + 45 ) / 90;
+  int la = aa & 0x3F; // angle part
+  int h = ((aa & 0x100) >> 8) - 1; // half Q1-4 or Q5-8: 0 or -1
+  int op = (aa & 0xA0) >> 6;
+  // 81 = 256 / M_PI
+  int r;
+  switch (op) {
+  case 0: r = details::do_sin<81>(la, scale); break;
+  case 1: r = details::do_cos<81>(64 - la, scale); break;
+  case 2: r = details::do_cos<81>(la, scale); break;
+  case 3: r = details::do_sin<81>(64 - la, scale); break;
+  }
+  return isgn(angle, h * r);
 }
 
 // This method is only defined for the interval within (-360, 360).
