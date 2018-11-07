@@ -85,10 +85,9 @@ inline int namp(int gate, int boost) {
   return (t & boost);
 }
 
-inline int sq(int x) { return x * x; }
-
 template<int N>
 constexpr int sq() { return N*N; }
+inline int sq(int x) { return x * x; }
 
 // Approximate hypotenuse implementation. Square root can't be computed on
 // integers, but there's a fast convergent approximation with few iterations
@@ -107,59 +106,34 @@ inline int ihyp(const int adjacent, const int opposite)
 }
 
 namespace details {
-  template<int Factor>
+  // Curve-fitted 3rd order Taylor approximation to the sine function that only
+  // takes 256 positive angles values representing angles between 0 and PI.
   inline int do_sin(int angle, int scale) {
-    constexpr const int Factor2 = 6 * sq<Factor>();
-    return (((scale * angle) / Factor) * (Factor2 - sq(angle))) / Factor2;
+    constexpr const int Factor = 81;                // 256 / PI ~= 81
+    constexpr const int Factor2 = 6 * sq<Factor>(); // 3! * (256/PI ~= 81)^2
+    return (((scale * angle) / Factor) * (Factor2 - (sq(angle) * 8) / 9)) / Factor2;
   }
-
-  template<int Factor>
-  inline int do_cos(int angle, int scale) {
-    constexpr const int Factor2 = 2 * sq<Factor>();
-    return (scale * Factor2 - scale * sq(angle)) / Factor2;
-  }
-}
-
-// Return the sine value for an `angle` in degree, multipled by arbitrary
-// precision. This method is only defined for the interval within (-450, 450).
-//
-// It uses only the first degree of the Taylor serie for either sin or cos,
-// since the first degree is only precise until (-45, 45). It should have less
-// that 0.5% of error.
-//
-inline int isin_(int angle, int scale) {
-  angle = angle + 2 * (- irel(angle - 90) - nirel(angle + 90)
-                       + irel(angle - 270) + nirel(angle + 270));
-  // 57 ~= 180 / M_PI
-  return isgv(abs(angle) - 45, isgn(angle, details::do_cos<57>(90 - abs(angle), scale)), details::do_sin<57>(angle, scale));
 }
 
 // Return the sine value for an `angle` in degree, multipled by arbitrary
 // precision.
 //
 // It does it by mapping degree angles into into 512 values. The first 7 bits
-// are the angle within a 45 degree quadrant. The next 3 bits control the choice
-// of sign and operations to perform: sin(x) or cos(x) are each more precise
-// when x is close to 0.
+// are the angle within a 90 degree quadrant. The next 2 bits control the choice
+// of sign and quadrant to use: sin(x) or sin(90 - x).
 //
-// It should have less than 1% of error.
+// It should have less than 2% of error.
 inline int isin(int angle, int scale) {
-  int aa = ( abs(angle) * 128 + 45 ) / 90;
-  int la = aa & 0x3F; // angle part
-  int h = ((aa & 0x100) >> 8) - 1; // half Q1-4 or Q5-8: 0 or -1
-  int op = (aa & 0xA0) >> 6;
-  // 81 = 256 / M_PI
-  int r;
-  switch (op) {
-  case 0: r = details::do_sin<81>(la, scale); break;
-  case 1: r = details::do_cos<81>(64 - la, scale); break;
-  case 2: r = details::do_cos<81>(la, scale); break;
-  case 3: r = details::do_sin<81>(64 - la, scale); break;
-  }
-  return isgn(angle, h * r);
+  int s = angle >> (sizeof(int) * 8 - 1);     // sign mask
+  int aa = (((angle^s) - s) * 128 + 45) / 90; // absolute angle
+  int la = aa & 0x7F;                         // quadrant angle
+  int h = -((aa & 0x100) >> 8);               // first or second half: 0 or -1
+  int q = -((aa & 0x80)  >> 7);               // first or second quadrant: 0 or -1
+  int r = (details::do_sin(la, scale) | q) + (details::do_sin(128 - la, scale) & q) - q;
+  s = h^s;                                    // XOR halves and sign together
+  return (r^s) - s;
 }
 
-// This method is only defined for the interval within (-360, 360).
 inline int icos(int angle, int scale) {
   return isin(90 - angle, scale);
 }
