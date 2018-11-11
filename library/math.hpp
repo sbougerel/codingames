@@ -2,6 +2,9 @@
 #include <array>
 #include <iostream>
 
+template<typename Tp>
+constexpr int bits() { return sizeof(Tp) * 8; }
+
 // This is the canonical implementation for absolute. It's so beautiful, I
 // wanted to write it again. It just blows my mind everytime I look at it.
 //
@@ -87,7 +90,9 @@ inline int namp(int gate, int boost) {
 
 template<int N>
 constexpr int sq() { return N*N; }
-inline int sq(int x) { return x * x; }
+
+template<typename Tp>
+inline Tp sq(Tp x) { return x * x; }
 
 // Approximate hypotenuse implementation. Square root can't be computed on
 // integers, but there's a fast convergent approximation with few iterations
@@ -105,16 +110,6 @@ inline int ihyp(const int adjacent, const int opposite)
   return (sq(x) + S) / (2 * x + 1);
 }
 
-namespace details {
-  // Curve-fitted 3rd order Taylor approximation to the sine function that only
-  // takes 256 positive angles values representing angles between 0 and PI.
-  inline int do_sin(int angle, int scale) {
-    constexpr const int Factor = 81;                // 256 / PI ~= 81
-    constexpr const int Factor2 = 6 * sq<Factor>(); // 3! * (256/PI ~= 81)^2
-    return (((scale * angle) / Factor) * (Factor2 - (sq(angle) * 8) / 9)) / Factor2;
-  }
-}
-
 // Return the sine value for an `angle` in degree, multipled by arbitrary
 // precision.
 //
@@ -124,14 +119,18 @@ namespace details {
 //
 // It should have less than 2% of error.
 inline int isin(int angle, int scale) {
-  int s = angle >> (sizeof(int) * 8 - 1);     // sign mask
-  int aa = (((angle^s) - s) * 128 + 45) / 90; // absolute angle
-  int la = aa & 0x7F;                         // quadrant angle
-  int h = -((aa & 0x100) >> 8);               // first or second half: 0 or -1
-  int q = -((aa & 0x80)  >> 7);               // first or second quadrant: 0 or -1
-  int r = (details::do_sin(la, scale) | q) + (details::do_sin(128 - la, scale) & q) - q;
-  s = h^s;                                    // XOR halves and sign together
-  return (r^s) - s;
+  constexpr const int Factor = 81;                 // 256 / PI ~= 81
+  constexpr const int Factor2 = 54 * sq<Factor>(); // 9 * 3! * (256/PI ~= 81)^2
+  constexpr const float Factor3 = Factor2 * Factor;
+  int s = angle >> (sizeof(int) * 8 - 1);          // sign mask: 0 or -1
+  int aa = (((angle^s) - s) * 128 + 45) / 90;      // absolute angle in 256-unit per PI
+  int h = (aa << (bits<int>() - 9)) >> (bits<int>() - 1); // first or second half: 0 or -1
+  int ra = aa & 0x7F;                              // 128-unit angle in quadrant
+  if (aa & 0x80) { ra = 128 - ra; }                // first or second quadrant
+  float f = float(ra * (Factor2 - (sq(ra) * 8))) / Factor3;
+  ra = scale * f;
+  s = h^s;                                         // XOR halves and sign together
+  return (ra^s) - s;
 }
 
 inline int icos(int angle, int scale) {

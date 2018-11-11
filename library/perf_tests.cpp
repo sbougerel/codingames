@@ -76,6 +76,17 @@ BOOST_AUTO_TEST_CASE(test_sine){
   std::vector<double> rad_shuffle;
   for (size_t i= 0; i < N; ++i) rad_shuffle.push_back(double(deg_shuffle[i]) * M_PI / 180.0);
 
+  std::chrono::duration<double> elapsed_base;
+  {
+    int j = 0;
+    auto start = std::chrono::high_resolution_clock::now();
+    for (int i : deg_shuffle) { j += i; }
+    auto end = std::chrono::high_resolution_clock::now();
+    elapsed_base = end-start;
+    std::cout << "base iteration time for " << N << " iterations:\t"
+              << elapsed_base.count() << "s (" << j << ")" << std::endl;
+  }
+
   std::chrono::duration<double> elapsed_std;
   {
     double j = 0;
