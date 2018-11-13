@@ -2,9 +2,6 @@
 #include <array>
 #include <iostream>
 
-template<typename Tp>
-constexpr int bits() { return sizeof(Tp) * 8; }
-
 // This is the canonical implementation for absolute. It's so beautiful, I
 // wanted to write it again. It just blows my mind everytime I look at it.
 //
@@ -88,11 +85,9 @@ inline int namp(int gate, int boost) {
   return (t & boost);
 }
 
-template<int N>
-constexpr int sq() { return N*N; }
-
+// Squares a value.
 template<typename Tp>
-inline Tp sq(Tp x) { return x * x; }
+constexpr Tp sq(Tp x) { return x * x; }
 
 // Approximate hypotenuse implementation. Square root can't be computed on
 // integers, but there's a fast convergent approximation with few iterations
@@ -119,17 +114,18 @@ inline int ihyp(const int adjacent, const int opposite)
 //
 // It should have less than 2% of error.
 inline int isin(int angle, int scale) {
-  constexpr const int Factor = 81;                 // 256 / PI ~= 81
-  constexpr const int Factor2 = 54 * sq<Factor>(); // 9 * 3! * (256/PI ~= 81)^2
+  constexpr const int Factor = 81;               // 256 / PI ~= 81
+  constexpr const int Factor2 = 54 * sq(Factor); // 9 * 3! * (256/PI ~= 81)^2
   constexpr const float Factor3 = Factor2 * Factor;
-  int s = angle >> (sizeof(int) * 8 - 1);          // sign mask: 0 or -1
-  int aa = (((angle^s) - s) * 128 + 45) / 90;      // absolute angle in 256-unit per PI
-  int h = (aa << (bits<int>() - 9)) >> (bits<int>() - 1); // first or second half: 0 or -1
-  int ra = aa & 0x7F;                              // 128-unit angle in quadrant
-  if (aa & 0x80) { ra = 128 - ra; }                // first or second quadrant
+  constexpr const int bits = sizeof(int) * 8;
+  int s = angle >> (bits - 1);                   // sign mask: 0 or -1
+  int aa = (((angle^s) - s) * 128 + 45) / 90;    // absolute angle in 256-unit per PI
+  int h = (aa << (bits - 9)) >> (bits - 1);      // first or second half: 0 or -1
+  int ra = aa & 0x7F;                            // 128-unit angle in quadrant
+  if (aa & 0x80) { ra = 128 - ra; }              // first or second quadrant
   float f = float(ra * (Factor2 - (sq(ra) * 8))) / Factor3;
   ra = scale * f;
-  s = h^s;                                         // XOR halves and sign together
+  s = h^s;                                       // XOR halves and sign together
   return (ra^s) - s;
 }
 

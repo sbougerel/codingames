@@ -2,6 +2,7 @@
 #include <boost/test/included/unit_test.hpp>
 
 #include "math.hpp"
+#include "ring.hpp"
 
 // BOOST pollutes my namespace! I'm thinking of raising a bug here.
 BOOST_AUTO_TEST_CASE(test_iabs){
@@ -78,4 +79,30 @@ BOOST_AUTO_TEST_CASE(test_isin){
   BOOST_CHECK_LT(error_isin_stdsin(-300, SINE_PRECISION), 200);
   BOOST_CHECK_LT(error_isin_stdsin(330, SINE_PRECISION), 200);
   BOOST_CHECK_LT(error_isin_stdsin(-330, SINE_PRECISION), 200);
+}
+
+BOOST_AUTO_TEST_CASE(test_ring_anchor){
+  Ring<int, 2> r(0);
+  auto a = anchor<0>(r);
+  auto b = anchor<1>(r);
+  *a = 2;
+  BOOST_CHECK_EQUAL(*a, 2);
+  BOOST_CHECK_EQUAL(*b, 0);
+  r.rotate();
+  BOOST_CHECK_EQUAL(*a, 0);
+  BOOST_CHECK_EQUAL(*b, 2);
+}
+
+template<typename Tp> void silence(const Tp&) { }
+
+BOOST_AUTO_TEST_CASE(test_ring_move){
+  Ring<int, 2> r1(2);
+  BOOST_CHECK_EQUAL(r1.items()[0], 2);
+  BOOST_CHECK_EQUAL(r1.items()[1], 2);
+  {
+    Ring<int, 2> r2(std::move(r1));
+    silence(r2);
+  }
+  BOOST_CHECK_EQUAL(r1.items()[0], 0);
+  BOOST_CHECK_EQUAL(r1.items()[1], 0);
 }
