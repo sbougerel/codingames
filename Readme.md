@@ -12,7 +12,8 @@ find this rather enjoyable to play, more so than video games perhaps.
 ## The Integer library
 
 A set of reusable code snippets, designed to be copy/pasted in future codingames
-puzzles: compact, self-contained, simple to understand and reason about.
+puzzles: compact, self-contained, simple to understand and reason about - for the
+most part.
 
 ### Concept
 
