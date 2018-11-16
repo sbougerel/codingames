@@ -4,6 +4,8 @@
 // made most of them as templates, cause `int` is what I use all the time. I
 // guess I just like the opportunity cost of templates. :D
 //
+#ifndef SYLVAIN__CODINGAME_VEC2
+#define SYLVAIN__CODINGAME_VEC2
 
 #include <array>
 #include <iostream>
@@ -45,6 +47,12 @@ inline Vec2 operator* (const Vec2& a, int factor)
 inline Vec2 operator/ (const Vec2& a, int factor)
 { return {a.x() / factor, a.y() / factor}; }
 
+inline Vec2 operator<< (const Vec2& a, int factor)
+{ return {a.x() << factor, a.y() << factor}; }
+
+inline Vec2 operator>> (const Vec2& a, int factor)
+{ return {a.x() >> factor, a.y() >> factor}; }
+
 inline int magsq(const Vec2& a)
 { return sq(a.x()) + sq(a.y()); }
 
@@ -76,3 +84,5 @@ inline Vec2 norm(const Vec2& a, int norm)
   int x = mag(a);
   return {(a.x() * norm) / (x + 1), (a.y() * norm) / (x + 1)};
 }
+
+#endif // SYLVAIN__CODINGAME_VEC2

@@ -3,6 +3,8 @@
 //
 // Ring is designed to store a small amount of large types. It is non-copyable
 // but movable.
+#ifndef SYLVAIN__CODINGAME_RING
+#define SYLVAIN__CODINGAME_RING
 
 #include <array>
 #include <vector>
@@ -74,3 +76,6 @@ inline typename Ring<Tp, N>::template ConstAnchor<P> anchor(const Ring<Tp, N>& r
 template<unsigned P, typename Tp, unsigned N>
 inline typename Ring<Tp, N>::template Anchor<P> anchor(Ring<Tp, N>& r)
 { return typename Ring<Tp, N>::template Anchor<P>(r); }
+
+
+#endif // SYLVAIN__CODINGAME_RING

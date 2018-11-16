@@ -1,3 +1,6 @@
+#ifndef SYLVAIN__CODINGAME_MATH
+#define SYLVAIN__CODINGAME_MATH
+
 #include <cmath>
 #include <array>
 #include <iostream>
@@ -132,3 +135,6 @@ inline int isin(int angle, int scale) {
 inline int icos(int angle, int scale) {
   return isin(90 - angle, scale);
 }
+
+
+#endif // SYLVAIN__CODINGAME_MATH

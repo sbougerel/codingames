@@ -3,6 +3,7 @@
 
 #include "math.hpp"
 #include "ring.hpp"
+#include "particle.hpp"
 
 // BOOST pollutes my namespace! I'm thinking of raising a bug here.
 BOOST_AUTO_TEST_CASE(test_iabs){
@@ -105,4 +106,32 @@ BOOST_AUTO_TEST_CASE(test_ring_move){
   }
   BOOST_CHECK_EQUAL(r1.items()[0], 0);
   BOOST_CHECK_EQUAL(r1.items()[1], 0);
+}
+
+BOOST_AUTO_TEST_CASE(test_collide_straight) {
+  { // facing straight horizontally
+    Particle p({0, 0}, {1, 0}, 100);
+    Particle q({10000, 0}, {-1, 0}, 100);
+    BOOST_CHECK_EQUAL(0, collide_straight(p, q));
+  }
+  { // facing straight vertically
+    Particle p({0, 0}, {0, -1}, 100);
+    Particle q({0, -10000}, {0, 1}, 100);
+    BOOST_CHECK_EQUAL(0, collide_straight(p, q));
+  }
+  { // Parallel, never meet
+    Particle p({0, 0}, {0, 1}, 100);
+    Particle q({200, 0}, {0, 1}, 100);
+    BOOST_CHECK_EQUAL(40000, collide_straight(p, q)); // dist sq
+  }
+  { // Perpendicular, meet
+    Particle p({10000, 0}, {-1, 0}, 100);
+    Particle q({0, -10000}, {0, 1}, 100);
+    BOOST_CHECK_EQUAL(0, collide_straight(p, q));
+  }
+  { // Perpendicular, don't meet
+    Particle p({10000, 0}, {-1, 0}, 100);
+    Particle q({0, -10000}, {0, 0}, 100);
+    BOOST_CHECK_EQUAL(100000000, collide_straight(p, q));
+  }
 }
