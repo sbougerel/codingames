@@ -13,48 +13,41 @@
 
 #include "math.hpp"
 
-struct Vec2 : std::array<int, 2>
-{
-  typedef array<int, 2> Base;
+struct Vec2 { int x, y; };
 
-  Vec2() {}
-  Vec2(int a, int b)
-  { Base::operator[](0) = a; Base::operator[](1) = b; }
+inline int x(const Vec2& a) { return a.x; }
+inline int& x(Vec2& a) { return a.x; }
 
-  int x() const { return Base::operator[](0); }
-  int& x() { return Base::operator[](0); }
-
-  int y() const { return Base::operator[](1); }
-  int& y() { return Base::operator[](1); }
-};
+inline int y(const Vec2& a) { return a.y; }
+inline int& y(Vec2& a) { return a.y; }
 
 inline std::ostream& operator<< (std::ostream& o, const Vec2& a) {
-  return o << "Vec2{" << a.x() << ", " << a.y() << "}";
+  return o << "Vec2{" << x(a) << ", " << y(a) << "}";
 }
 
 inline Vec2 operator+ (const Vec2& a, const Vec2& b)
-{ return {a.x() + b.x(), a.y() + b.y()}; }
+{ return {x(a) + x(b), y(a) + y(b)}; }
 
 inline Vec2 operator- (const Vec2& a, const Vec2& b)
-{ return {a.x() - b.x(), a.y() - b.y()}; }
+{ return {x(a) - x(b), y(a) - y(b)}; }
 
 inline Vec2 operator- (const Vec2& a)
-{ return {-a.x(), -a.y()}; }
+{ return {-x(a), -y(a)}; }
 
 inline Vec2 operator* (const Vec2& a, int factor)
-{ return {a.x() * factor, a.y() * factor}; }
+{ return {x(a) * factor, y(a) * factor}; }
 
 inline Vec2 operator/ (const Vec2& a, int factor)
-{ return {a.x() / factor, a.y() / factor}; }
+{ return {x(a) / factor, y(a) / factor}; }
 
 inline Vec2 operator<< (const Vec2& a, int factor)
-{ return {a.x() << factor, a.y() << factor}; }
+{ return {x(a) << factor, y(a) << factor}; }
 
 inline Vec2 operator>> (const Vec2& a, int factor)
-{ return {a.x() >> factor, a.y() >> factor}; }
+{ return {x(a) >> factor, y(a) >> factor}; }
 
 inline int magsq(const Vec2& a)
-{ return sq(a.x()) + sq(a.y()); }
+{ return sq(x(a)) + sq(y(a)); }
 
 inline int distsq(const Vec2& a, const Vec2& b)
 { return magsq(a - b); }
@@ -68,10 +61,10 @@ inline int distsq(const Vec2& a, const Vec2& b)
 inline int mag(const Vec2& a)
 {
   int S = magsq(a);
-  int x = iabs(a.x()) + iabs(a.y());
-  x = (sq(x) + S) / (2 * x + 1);
-  x = (sq(x) + S) / (2 * x + 1);
-  return (sq(x) + S) / (2 * x + 1);
+  int m = iabs(x(a)) + iabs(y(a));
+  m = (sq(m) + S) / (2 * m + 1);
+  m = (sq(m) + S) / (2 * m + 1);
+  return (sq(m) + S) / (2 * m + 1);
 }
 
 // Similar to mag, normalize cares to:
@@ -81,8 +74,8 @@ inline int mag(const Vec2& a)
 //     guaranteed positives
 inline Vec2 norm(const Vec2& a, int norm)
 {
-  int x = mag(a);
-  return {(a.x() * norm) / (x + 1), (a.y() * norm) / (x + 1)};
+  int m = mag(a);
+  return {(x(a) * norm) / (m + 1), (y(a) * norm) / (m + 1)};
 }
 
 #endif // SYLVAIN__CODINGAME_VEC2

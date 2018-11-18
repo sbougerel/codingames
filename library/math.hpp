@@ -136,5 +136,32 @@ inline int icos(int angle, int scale) {
   return isin(90 - angle, scale);
 }
 
+// Return an angle in degree for the value of the adjacent length `x`, the
+// opposite length`y` and their hypotenuse (when already precomputed), with less
+// than 3% error (10 degrees over 360 degrees).
+//
+// Uses the lagrange approximation that can be found everywhere on Internet,
+// only adapted to integers and degrees. The input range is only defined between
+// [0, 1], which means we need to use the right terms for x vs y:
+//
+//     (-0.698131700 * x * x -0.872664625) * x + 1.570796325;
+//
+inline int iacos3(int x, int y, int hypot) {
+  constexpr const float A = -0.698131700f;
+  constexpr const float B = -0.872664625f;
+  constexpr const float C = A + B;
+  constexpr const float D = 180.f / M_PI;
+  float f = float(x) / float(hypot);
+  f = (A * f * f + B) * f - C;
+  int r = (D * f);
+  return isgn(y, r);
+}
+
+// Return an angle in degree for the value of the adjacent length `x`, the
+// opposite length`y` with less than 3% error.
+//
+inline int iacos2(int x, int y) {
+  return iacos3(x, y, ihyp(x, y));
+}
 
 #endif // SYLVAIN__CODINGAME_MATH

@@ -82,6 +82,26 @@ BOOST_AUTO_TEST_CASE(test_isin){
   BOOST_CHECK_LT(error_isin_stdsin(-330, SINE_PRECISION), 200);
 }
 
+int iacos3_from_stdmath(int angle, int precision) {
+  int x = std::cos(angle * M_PI / 180) * precision;
+  int y = std::sin(angle * M_PI / 180) * precision;
+  return iacos3(x, y, std::sqrt(x * x + y * y));
+}
+
+BOOST_AUTO_TEST_CASE(test_iacos2) {
+  BOOST_CHECK_EQUAL(iacos2(1000, 0), 0);
+  BOOST_CHECK_EQUAL(iacos2(-1000, 0), 180);
+  BOOST_CHECK_EQUAL(iacos2(0, 1000), 90);
+  BOOST_CHECK_EQUAL(iacos2(0, -1000), -90);
+  BOOST_CHECK_LT(iabs(iacos2(500, 500)  - (  45)), 6);
+  BOOST_CHECK_LT(iabs(iacos2(500, -500) - ( -45)), 6);
+  BOOST_CHECK_LT(iabs(iacos2(-500, 500) - ( 135)), 6);
+  BOOST_CHECK_LT(iabs(iacos3_from_stdmath(30, 10000))  - (  30), 10);
+  BOOST_CHECK_LT(iabs(iacos3_from_stdmath(60, 10000))  - (  60), 10);
+  BOOST_CHECK_LT(iabs(iacos3_from_stdmath(120, 10000)) - ( 120), 10);
+  BOOST_CHECK_LT(iabs(iacos3_from_stdmath(150, 10000)) - ( 150), 10);
+}
+
 BOOST_AUTO_TEST_CASE(test_ring_anchor){
   Ring<int, 2> r(0);
   auto a = anchor<0>(r);
@@ -106,32 +126,4 @@ BOOST_AUTO_TEST_CASE(test_ring_move){
   }
   BOOST_CHECK_EQUAL(r1.items()[0], 0);
   BOOST_CHECK_EQUAL(r1.items()[1], 0);
-}
-
-BOOST_AUTO_TEST_CASE(test_collide_straight) {
-  { // facing straight horizontally
-    Particle p({0, 0}, {1, 0}, 100);
-    Particle q({10000, 0}, {-1, 0}, 100);
-    BOOST_CHECK_EQUAL(0, collide_straight(p, q));
-  }
-  { // facing straight vertically
-    Particle p({0, 0}, {0, -1}, 100);
-    Particle q({0, -10000}, {0, 1}, 100);
-    BOOST_CHECK_EQUAL(0, collide_straight(p, q));
-  }
-  { // Parallel, never meet
-    Particle p({0, 0}, {0, 1}, 100);
-    Particle q({200, 0}, {0, 1}, 100);
-    BOOST_CHECK_EQUAL(40000, collide_straight(p, q)); // dist sq
-  }
-  { // Perpendicular, meet
-    Particle p({10000, 0}, {-1, 0}, 100);
-    Particle q({0, -10000}, {0, 1}, 100);
-    BOOST_CHECK_EQUAL(0, collide_straight(p, q));
-  }
-  { // Perpendicular, don't meet
-    Particle p({10000, 0}, {-1, 0}, 100);
-    Particle q({0, -10000}, {0, 0}, 100);
-    BOOST_CHECK_EQUAL(100000000, collide_straight(p, q));
-  }
 }
