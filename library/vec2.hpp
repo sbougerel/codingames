@@ -22,7 +22,7 @@ inline int y(const Vec2& a) { return a.y; }
 inline int& y(Vec2& a) { return a.y; }
 
 inline std::ostream& operator<< (std::ostream& o, const Vec2& a) {
-  return o << "Vec2{" << x(a) << ", " << y(a) << "}";
+  return o << "Vec2({" << x(a) << ", " << y(a) << "})";
 }
 
 inline Vec2 operator+ (const Vec2& a, const Vec2& b)
@@ -45,6 +45,11 @@ inline Vec2 operator<< (const Vec2& a, int factor)
 
 inline Vec2 operator>> (const Vec2& a, int factor)
 { return {x(a) >> factor, y(a) >> factor}; }
+
+inline bool operator== (const Vec2& a, const Vec2& b)
+{ return (x(a) == x(b) && y(a) == y(b)); }
+
+inline bool operator!= (const Vec2& a, const Vec2& b) { return !(a == b); }
 
 inline int magsq(const Vec2& a)
 { return sq(x(a)) + sq(y(a)); }

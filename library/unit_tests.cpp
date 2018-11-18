@@ -127,3 +127,53 @@ BOOST_AUTO_TEST_CASE(test_ring_move){
   BOOST_CHECK_EQUAL(r1.items()[0], 0);
   BOOST_CHECK_EQUAL(r1.items()[1], 0);
 }
+
+BOOST_AUTO_TEST_CASE(test_ray2_norm){
+  BOOST_CHECK_EQUAL(Ray2({0, 0}), norm(Ray2{0, 0}));
+  BOOST_CHECK_EQUAL(Ray2({0, 0}), norm(Ray2{360, 0}));
+  BOOST_CHECK_EQUAL(Ray2({0, 0}), norm(Ray2{180, 0}));
+  BOOST_CHECK_EQUAL(Ray2({0, 0}), norm(Ray2{-360, 0}));
+  BOOST_CHECK_EQUAL(Ray2({0, 0}), norm(Ray2{-180, 0}));
+  BOOST_CHECK_EQUAL(Ray2({90, 0}), norm(Ray2{90, 0}));
+  BOOST_CHECK_EQUAL(Ray2({-90, 0}), norm(Ray2{-90, 0}));
+  BOOST_CHECK_EQUAL(Ray2({90, 0}), norm(Ray2{450, 0}));
+  BOOST_CHECK_EQUAL(Ray2({-90, 0}), norm(Ray2{-450, 0}));
+}
+
+BOOST_AUTO_TEST_CASE(test_collide_int) {
+  // At bounds
+  BOOST_CHECK_EQUAL(collide_int_sq(Vec2({0, 0}), Vec2({0, 0}),
+                                   Vec2({0, 0}), Vec2({0, 0}), 0),
+                    0);
+  // Parallel, never really meets: check against forever loops
+  BOOST_CHECK_EQUAL(collide_int_sq(Vec2({0, 0}), Vec2({0, 1000}),
+                                   Vec2({1000, 0}), Vec2({1000, 1000}), 1000000),
+                    1000000);
+  // Face each others: collide
+  BOOST_CHECK_EQUAL(collide_int_sq(Vec2({0, 0}), Vec2({0, 1000}),
+                                   Vec2({0, 1000}), Vec2({0, 0}), 100),
+                    100);
+  // Cross each others: collide
+  BOOST_CHECK_EQUAL(collide_int_sq(Vec2({-10000, 0}), Vec2({0, 10000}),
+                                   Vec2({10000, 0}), Vec2({0, -10000}),
+                                   100),
+                    100);
+  // Follow each other: miss
+  BOOST_CHECK_EQUAL(collide_int_sq(Vec2({-10000, 0}), Vec2({0, 0}),
+                                   Vec2({0, 0}), Vec2({10000, 0}),
+                                   10000000),
+                    100000000);
+}
+
+BOOST_AUTO_TEST_CASE(test_collide_sq) {
+  // Make 2 particles at the edge of the board, facing each other
+  Particle x0 = {{-10000, 0}, {100, 0}, 500, 1};
+  Particle x1 = {{10000, 0}, {-100, 0}, 500, 1};
+  // In vaccum, without acceleration, they should collide
+  BOOST_CHECK_EQUAL(std::get<1>(collide_sq(x0, x1, ZeroThrust(), ZeroThrust())),
+                    sq(500) + sq(500));
+  // Now with a constant acceleration, opposite to the speed, they get close but
+  // do not touch.
+  BOOST_CHECK_EQUAL(std::get<1>(collide_sq(x0, x1, ConstantThrust({-1, 0}), ConstantThrust({1, 0}))),
+                    sq(500) + sq(500));
+}

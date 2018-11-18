@@ -26,8 +26,22 @@ inline Ray2 operator- (const Ray2& a, const Ray2& b)
 inline Ray2 operator- (const Ray2& a)
 { return {-angle(a), rad(a)}; }
 
+inline bool operator== (const Ray2& a, const Ray2& b)
+{ return (angle(a) == angle(b) && rad(a) == rad(b)); }
+
+inline bool operator!= (const Ray2& a, const Ray2& b) { return !(a == b); }
+
 inline std::ostream& operator<< (std::ostream& o, const Ray2& a) {
-  return o << "Ray2{" << angle(a) << ", " << rad(a) << "}";
+  return o << "Ray2({" << angle(a) << ", " << rad(a) << "})";
+}
+
+// Normalize the angle of a ray to bring it back to (-180, 180).
+inline Ray2 norm(const Ray2& a) {
+  constexpr const int bits = sizeof(int) * 8;
+  int q = (angle(a) / 180);
+  int r = angle(a) % 180;
+  int m = q << (bits - 1) >> (bits - 1);
+  return {(r^m) - m, rad(a)};
 }
 
 inline Vec2 vec(const Ray2& a) { return Vec2{ icos(angle(a), rad(a)), isin(angle(a), rad(a)) }; }

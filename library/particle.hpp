@@ -32,9 +32,10 @@ inline Particle free_move(const Particle& p) {
   return {position, spd(p), rad(p), mass(p)};
 }
 
-inline Particle free_move(const Particle& p, int iteration) {
-  Vec2 position = spd(p) * iteration + pos(p);
-  return {position, spd(p), rad(p), mass(p)};
+inline Particle free_move(const Particle& p, const Vec2& a) {
+  Vec2 p_ = a / 2 + spd(p) + pos(p);
+  Vec2 s_ = a + spd(p);
+  return {p_, s_, rad(p), mass(p)};
 }
 
 // Policy for static dispatch during motion calculation. Needed since under
@@ -46,17 +47,9 @@ struct VariableThrustGradient { };
 // Objects implementing the ThurstGradient trait only need to define at(), which
 // must return a Vec2 object representing the acceleration to apply to a
 // particule `p`. `iterations` is the number of steps to look into the future.
-template<typename TGImpl>
-inline Vec2 at(const TGImpl& tg, int iterations) {
-  return tg.at(iterations);
-}
-
 template<typename TG>
-inline Particle free_move(const Particle& p, const TG& t) {
-  Vec2 a_ = at(t, 0);
-  Vec2 p_ = a_ / 2 + spd(p) + pos(p);
-  Vec2 s_ = a_ + spd(p);
-  return {p_, s_, rad(p), mass(p)};
+inline Vec2 at(const TG& tg, int iterations) {
+  return tg.at(iterations);
 }
 
 template<typename TG>
@@ -67,8 +60,8 @@ inline Particle free_move(const Particle& p, const TG& t, int iterations, Consta
   return {p_, s_, rad(p), mass(p)};
 }
 
-template<typename P, typename T>
-inline P free_move(const P& p, const T& t, int iterations, VariableThrustGradient) {
+template<typename TG>
+inline Particle free_move(const Particle& p, const TG& t, int iterations, VariableThrustGradient) {
   Vec2 p_ = pos(p);
   Vec2 s_ = spd(p);
   for (int i = 0; i < iterations; ++i) {
@@ -85,6 +78,14 @@ inline Particle free_move(const Particle& p, const TG& t, int iterations) {
   return free_move(p, t, iterations, TG::ThrustGradiant());
 }
 
+// Zero thrust is here to be optimized away such that using this in a
+// `free_move` function should compile to the same instruction as the
+// `free_move` function without ThrustGradient;
+struct ZeroThrust {
+  typedef ConstantThrustGradient ThrustGradient;
+  Vec2 at(int) const { return {0, 0}; }
+};
+
 // ConstantThrust is a ThurstGradiant implementation where the thrust will
 // remain constant overtime.
 struct ConstantThrust {
@@ -98,7 +99,7 @@ private:
 };
 
 // RotatingThrust is a ThurstGradiant implementation where the thrust will
-// rotate over time according to a constant angular speed (spin).
+// rotate overtime according to a constant angular speed (spin).
 struct RotatingThrust {
   typedef VariableThrustGradient ThurstGratiant;
 
@@ -111,80 +112,60 @@ private:
   int _spin;
 };
 
-// Linear Collision Detection algorithm. A posteriori (not exact). Returns 0 if
-// the 2 particles collide, otherwise gives an a posteriori estimate of the
-// closest approach between the 2 particles.
+// Given two positions at discreet time t0 and t1 and a distance of closest
+// appraoch `sqrad`, perform recursive halving of the time interval to check
+// whether the particle collided.
 //
-// The estimation is based on a constant speed for both particles x and y.
-inline int collide_straight(Particle x, Particle y) {
-  // iterate so long as the particules are coming closer to each others
-  int prev_dist;
-  int curr_dist = distsq(pos(x), pos(y));
-  do
+inline int collide_int_sq(Vec2 x0, Vec2 y0, Vec2 x1, Vec2 y1, int sqrad) {
+  constexpr const int stop_delta = 4;
+  int sqd0 = distsq(x0, y0);
+  if (sqd0 < sqrad) { return sqrad; }
+  int sqd1 = distsq(x1, y1);
+  while (true)
     {
-      prev_dist = curr_dist;
-      Vec2 prev_x = pos(x);
-      Vec2 prev_y = pos(y);
-      pos(x) = pos(x) + spd(x);
-      pos(y) = pos(y) + spd(y);
-      curr_dist = distsq(pos(x), pos(y));
-      if (curr_dist < sq(rad(x)) + sq(rad(y))) { return 0; }
-      else {
-        // check collision between virtual particles spanning the entire motion
-        Vec2 spd_x = spd(x) >> 1;
-        Vec2 spd_y = spd(y) >> 1;
-        Vec2 pos_x = prev_x + spd_x;
-        Vec2 pos_y = prev_y + spd_y;
-        int dist = distsq(pos_x, pos_y);
-        if (dist < sq(rad(x)) + sq(rad(y)) + magsq(spd_x) + magsq(spd_y)) {
-          spd(x) = spd_x;
-          spd(y) = spd_y;
-          pos(x) = pos_x;
-          pos(y) = pos_y;
-          curr_dist = dist;
-        }
-      }
-    } while (prev_dist > curr_dist);
-  return prev_dist;
+      if (sqd1 < sqrad) { return sqrad; }
+      if (   distsq(x0, x1) < stop_delta
+          || distsq(y0, y1) < stop_delta) { break; }
+      Vec2 xh = (x0 + x1) / 2;
+      Vec2 yh = (y0 + y1) / 2;
+      int sqd = distsq(xh, yh);
+      if (sqd >= sqrad + magsq(x0 - xh) + magsq(y0 - yh)) { break; }
+      if (sqd0 > sqd1)        // converge faster: chose the closest side
+        { x0 = x1; y0 = y1; }
+      x1 = xh; y1 = yh; sqd1 = sqd;
+    }
+  return (sqd0 < sqd1) ? sqd0 : sqd1;
 }
 
-// Linear Collision Detection algorithm. A posteriori (not exact). Returns 0 if
-// the two particles collide, otherwise gives an a posteriori estimate of the
-// closest approach between the 2 particles.
+// Collision Detection algorithm. Returns an a posteriori estimate of the
+// closest approach between the 2 particles (squared) and the collision
+// distance. When closest approach <= collision distance, there was
+// collision.
 //
-// The estimation is based on a constant acceleration *and a constant spin* for both
-// particles x and y.
-template<typename P>
-inline int collide(P x, P y, int max_iter = 1000) {
-  // iterate so long as the particules are coming closer to each others
-  int prev_dist;
-  int curr_dist = distsq(pos(x), pos(y));
-  do
-    {
-      prev_dist = curr_dist;
-      Vec2 prev_x = pos(x);
-      Vec2 prev_y = pos(y);
-      pos(x) = pos(x) + spd(x);
-      pos(y) = pos(y) + spd(y);
-      curr_dist = distsq(pos(x), pos(y));
-      if (curr_dist < sq(rad(x)) + sq(rad(y))) { return 0; }
-      else {
-        // check collision between virtual particles spanning the entire motion
-        Vec2 spd_x = spd(x) >> 1;
-        Vec2 spd_y = spd(y) >> 1;
-        Vec2 pos_x = prev_x + spd_x;
-        Vec2 pos_y = prev_y + spd_y;
-        int dist = distsq(pos_x, pos_y);
-        if (dist < sq(rad(x)) + sq(rad(y)) + magsq(spd_x) + magsq(spd_y)) {
-          spd(x) = spd_x;
-          spd(y) = spd_y;
-          pos(x) = pos_x;
-          pos(y) = pos_y;
-          curr_dist = dist;
-        }
-      }
-    } while (prev_dist > curr_dist);
-  return prev_dist;
+// The estimation stops after max_iter, which is 100 by default, or when one of
+// the particle gets out of the bounding box.
+//
+// The estimation is based on the ThrustGradiant associated with both
+// particles.
+//
+template<typename TG1, typename TG2>
+inline std::pair<int, int>
+collide_sq (Particle x0, Particle y0, const TG1& tx, const TG2& ty,
+            int max_iter = 100, const Box2& bb = {{-10000,-10000}, {10000, 10000}}) {
+  int sqrad = sq(rad(x0)) + sq(rad(y0));
+  int best_approach = distsq(pos(x0), pos(y0));
+  if (best_approach <= sqrad) return std::make_pair(sqrad, sqrad);
+  for (int i = 0; i < max_iter; ++ i) {
+    Particle x1 = free_move(x0, at(tx, i));
+    Particle y1 = free_move(y0, at(ty, i));
+    // check against bb;
+    int approach = collide_int_sq(pos(x0), pos(y0), pos(x1), pos(y1), sqrad);
+    if (approach <= sqrad) return std::make_pair(sqrad, sqrad);
+    if (approach < best_approach) { best_approach = approach; }
+    x0 = x1; y0 = y1;
+  }
+  // return tuple with number of iteration at closest approach.
+  return std::make_pair(sqrad, best_approach);
 }
 
 #endif // SYLVAIN__CODINGAME_PARTICLE
