@@ -146,6 +146,7 @@ inline int icos(int angle, int scale) {
 //
 //     (-0.698131700 * x * x -0.872664625) * x + 1.570796325;
 //
+// if hypot is 0, the result is undefined.
 inline int iacos3(int x, int y, int hypot) {
   constexpr const float A = -0.698131700f;
   constexpr const float B = -0.872664625f;

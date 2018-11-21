@@ -2,9 +2,11 @@
 #define SYLVAIN__CODINGAME_PARTICLE
 
 #include <iostream>
+#include <tuple>
 
 #include "vec2.hpp"
 #include "ray2.hpp"
+#include "box2.hpp"
 
 // The Particle object with the necessary trait accessors are defined below
 //
@@ -27,9 +29,22 @@ inline int& rad(Particle& a) { return a.rad; }
 inline int mass(const Particle& a) { return a.mass; }
 inline int& mass(Particle& a) { return a.mass; }
 
+inline bool operator==(const Particle& a, const Particle& b) {
+  return (pos(a) == pos(b)
+          && spd(a) == spd(b)
+          && rad(a) == rad(b)
+          && mass(a) == mass(b));
+}
+inline bool operator!=(const Particle& a, const Particle& b)
+{ return !(a == b); }
+
+inline std::ostream& operator<<(std::ostream& o, const Particle& a) {
+  o << "Particle({" << pos(a) << ", " << spd(a) << ", " << rad(a) << ", " << mass(a) << "})";
+  return o;
+}
+
 inline Particle free_move(const Particle& p) {
-  Vec2 position = spd(p) + pos(p);
-  return {position, spd(p), rad(p), mass(p)};
+  return {spd(p) + pos(p), spd(p), rad(p), mass(p)};
 }
 
 inline Particle free_move(const Particle& p, const Vec2& a) {
@@ -75,7 +90,7 @@ inline Particle free_move(const Particle& p, const TG& t, int iterations, Variab
 template<typename TG>
 inline Particle free_move(const Particle& p, const TG& t, int iterations) {
   // static dispatch
-  return free_move(p, t, iterations, TG::ThrustGradiant());
+  return free_move(p, t, iterations, typename TG::ThrustGradient());
 }
 
 // Zero thrust is here to be optimized away such that using this in a
@@ -101,11 +116,11 @@ private:
 // RotatingThrust is a ThurstGradiant implementation where the thrust will
 // rotate overtime according to a constant angular speed (spin).
 struct RotatingThrust {
-  typedef VariableThrustGradient ThurstGratiant;
+  typedef VariableThrustGradient ThrustGradient;
 
-  RotatingThrust(const Vec2& thrust, int spin) : _thrust(ray(thrust)), _spin(spin) { }
+  RotatingThrust(const Ray2& thrust, int spin) : _thrust(thrust), _spin(spin) { }
   Vec2 at(int iterations) const
-  { return vec(_thrust + Ray2{_spin * iterations, 0}); }
+  { return vec(Ray2{_spin * iterations + angle(_thrust), rad(_thrust)}); }
 
 private:
   Ray2 _thrust;
@@ -137,10 +152,10 @@ inline int collide_int_sq(Vec2 x0, Vec2 y0, Vec2 x1, Vec2 y1, int sqrad) {
   return (sqd0 < sqd1) ? sqd0 : sqd1;
 }
 
-// Collision Detection algorithm. Returns an a posteriori estimate of the
-// closest approach between the 2 particles (squared) and the collision
-// distance. When closest approach <= collision distance, there was
-// collision.
+// Collision Detection algorithm. Returns the distance of collision, an a
+// posteriori estimate of the closest approach between the 2 particles (squared)
+// and the time to collision. When closest approach <= distance of collision,
+// collision has occured.
 //
 // The estimation stops after max_iter, which is 100 by default, or when one of
 // the particle gets out of the bounding box.
@@ -149,23 +164,25 @@ inline int collide_int_sq(Vec2 x0, Vec2 y0, Vec2 x1, Vec2 y1, int sqrad) {
 // particles.
 //
 template<typename TG1, typename TG2>
-inline std::pair<int, int>
-collide_sq (Particle x0, Particle y0, const TG1& tx, const TG2& ty,
+inline std::tuple<int, int, int>
+collide_sq(Particle x0, Particle y0, const TG1& tx, const TG2& ty,
             int max_iter = 100, const Box2& bb = {{-10000,-10000}, {10000, 10000}}) {
   int sqrad = sq(rad(x0)) + sq(rad(y0));
   int best_approach = distsq(pos(x0), pos(y0));
-  if (best_approach <= sqrad) return std::make_pair(sqrad, sqrad);
-  for (int i = 0; i < max_iter; ++ i) {
+  if (best_approach <= sqrad)
+    { return std::make_tuple(sqrad, best_approach, 0); }
+  int i = 0;
+  for (; i < max_iter; ++i) {
     Particle x1 = free_move(x0, at(tx, i));
     Particle y1 = free_move(y0, at(ty, i));
-    // check against bb;
+    if (!within(bb, pos(x1)) || !within(bb, pos(y1))) break;
     int approach = collide_int_sq(pos(x0), pos(y0), pos(x1), pos(y1), sqrad);
-    if (approach <= sqrad) return std::make_pair(sqrad, sqrad);
+    if (approach <= sqrad)
+      { return std::make_tuple(sqrad, approach, i); }
     if (approach < best_approach) { best_approach = approach; }
     x0 = x1; y0 = y1;
   }
-  // return tuple with number of iteration at closest approach.
-  return std::make_pair(sqrad, best_approach);
+  return std::make_tuple(sqrad, best_approach, i);
 }
 
 #endif // SYLVAIN__CODINGAME_PARTICLE

@@ -129,15 +129,24 @@ BOOST_AUTO_TEST_CASE(test_ring_move){
 }
 
 BOOST_AUTO_TEST_CASE(test_ray2_norm){
-  BOOST_CHECK_EQUAL(Ray2({0, 0}), norm(Ray2{0, 0}));
-  BOOST_CHECK_EQUAL(Ray2({0, 0}), norm(Ray2{360, 0}));
-  BOOST_CHECK_EQUAL(Ray2({0, 0}), norm(Ray2{180, 0}));
-  BOOST_CHECK_EQUAL(Ray2({0, 0}), norm(Ray2{-360, 0}));
-  BOOST_CHECK_EQUAL(Ray2({0, 0}), norm(Ray2{-180, 0}));
-  BOOST_CHECK_EQUAL(Ray2({90, 0}), norm(Ray2{90, 0}));
+  BOOST_CHECK_EQUAL(Ray2({0, 0}),   norm(Ray2{0, 0}));
+  BOOST_CHECK_EQUAL(Ray2({0, 0}),   norm(Ray2{360, 0}));
+  BOOST_CHECK_EQUAL(Ray2({180, 0}),   norm(Ray2{180, 0}));
+  BOOST_CHECK_EQUAL(Ray2({0, 0}),   norm(Ray2{-360, 0}));
+  BOOST_CHECK_EQUAL(Ray2({-180, 0}),   norm(Ray2{-180, 0}));
+  BOOST_CHECK_EQUAL(Ray2({90, 0}),  norm(Ray2{90, 0}));
   BOOST_CHECK_EQUAL(Ray2({-90, 0}), norm(Ray2{-90, 0}));
-  BOOST_CHECK_EQUAL(Ray2({90, 0}), norm(Ray2{450, 0}));
+  BOOST_CHECK_EQUAL(Ray2({90, 0}),  norm(Ray2{450, 0}));
   BOOST_CHECK_EQUAL(Ray2({-90, 0}), norm(Ray2{-450, 0}));
+}
+
+BOOST_AUTO_TEST_CASE(test_free_move) {
+  // Make 2 particles at the edge of the board, facing each other
+  Particle x0 = {{-10000, 0}, {100, 0}, 500, 1};
+  // The second implementation is actually less precise.
+  BOOST_CHECK_LT(iabs(x(pos(free_move(x0, ConstantThrust({-1, 0}), 100)))
+                      - x(pos(free_move(x0, ConstantThrust({-1, 0}), 100, VariableThrustGradient())))),
+                 100);
 }
 
 BOOST_AUTO_TEST_CASE(test_collide_int) {
@@ -173,7 +182,15 @@ BOOST_AUTO_TEST_CASE(test_collide_sq) {
   BOOST_CHECK_EQUAL(std::get<1>(collide_sq(x0, x1, ZeroThrust(), ZeroThrust())),
                     sq(500) + sq(500));
   // Now with a constant acceleration, opposite to the speed, they get close but
-  // do not touch.
+  // do not touch. Compare with the similarly imprecise version.
   BOOST_CHECK_EQUAL(std::get<1>(collide_sq(x0, x1, ConstantThrust({-1, 0}), ConstantThrust({1, 0}))),
+                    distsq(pos(free_move(x0, ConstantThrust({-1, 0}), 100, VariableThrustGradient())),
+                           pos(free_move(x1, ConstantThrust({1, 0}), 100, VariableThrustGradient()))));
+  // Now with a rotation colliding (still moving into each others)
+  BOOST_CHECK_EQUAL(std::get<1>(collide_sq(x0, x1, RotatingThrust({0, 2}, 1), RotatingThrust({180, 2}, -1))),
                     sq(500) + sq(500));
+  // Now with a rotation avoiding each others
+  BOOST_CHECK_EQUAL(std::get<1>(collide_sq(x0, x1, RotatingThrust({180, 2}, 1), RotatingThrust({0, 2}, 1))),
+                    distsq(pos(free_move(x0, RotatingThrust({180, 2}, 1), 100)),
+                           pos(free_move(x1, RotatingThrust({0, 2},  1), 100))));
 }

@@ -35,16 +35,12 @@ inline std::ostream& operator<< (std::ostream& o, const Ray2& a) {
   return o << "Ray2({" << angle(a) << ", " << rad(a) << "})";
 }
 
-// Normalize the angle of a ray to bring it back to (-180, 180).
-inline Ray2 norm(const Ray2& a) {
-  constexpr const int bits = sizeof(int) * 8;
-  int q = (angle(a) / 180);
-  int r = angle(a) % 180;
-  int m = q << (bits - 1) >> (bits - 1);
-  return {(r^m) - m, rad(a)};
-}
+inline Ray2 norm(const Ray2& a) { return {angle(a) % 360, rad(a)}; }
 
 inline Vec2 vec(const Ray2& a) { return Vec2{ icos(angle(a), rad(a)), isin(angle(a), rad(a)) }; }
-inline Ray2 ray(const Vec2& a) { int r = mag(a); return Ray2{iacos3(x(a), y(a), r), r}; }
+inline Ray2 ray(const Vec2& a) {
+  int r = mag(a);
+  return (r == 0) ? Ray2{0, 0} : Ray2{iacos3(x(a), y(a), r), r};
+}
 
 #endif // SYLVAIN__CODINGAME_RAY
