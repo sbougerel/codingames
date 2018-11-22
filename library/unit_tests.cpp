@@ -1,9 +1,7 @@
 #define BOOST_TEST_MODULE Approximate Integer Tests
 #include <boost/test/included/unit_test.hpp>
 
-#include "math.hpp"
-#include "ring.hpp"
-#include "particle.hpp"
+#include "included.hpp"
 
 // BOOST pollutes my namespace! I'm thinking of raising a bug here.
 BOOST_AUTO_TEST_CASE(test_iabs){

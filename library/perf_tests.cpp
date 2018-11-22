@@ -9,7 +9,7 @@
 #include <chrono>
 #include <iostream>
 
-#include "math.hpp"
+#include "included.hpp"
 
 template<typename Tp>
 constexpr inline void silence(Tp) {}
