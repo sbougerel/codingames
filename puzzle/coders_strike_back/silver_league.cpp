@@ -544,95 +544,101 @@ inline typename Ring<Tp, N>::template Anchor<P> anchor(Ring<Tp, N>& r)
 
 #endif // SYLVAIN__CODINGAME_INCLUDED
 
+using std::cout;
+using std::cin;
+using std::cerr;
+using std::endl;
+using std::tuple;
+using std::vector;
 
-constexpr const int MAX_THRUST = 100;
-constexpr const int FF_RADIUS  = 400;
-constexpr const int CP_RADIUS  = 600;
-constexpr const int MAP_WIDTH  = 16000;
-constexpr const int MAP_HEIGHT = 9000;
-constexpr const Box2 MAP       = { MAP_WIDTH, MAP_HEIGHT };
-const char BOOST[]             = "BOOST";
-const char SHIELD[]            = "SHIELD";
+constexpr const int MAX_THRUST       = 100;
+constexpr const int POD_RADIUS       = 400;
+constexpr const int CP_RADIUS        = 600;
+constexpr const int MAP_WIDTH        = 16000;
+constexpr const int MAP_HEIGHT       = 9000;
+constexpr const int MAP_SEMI_WIDTH   = MAP_WIDTH / 2;
+constexpr const int MAP_SEMI_HEIGHT  = MAP_HEIGHT / 2;
+constexpr const int POD_MAX_ROTATION = 18; // rotation speed in degree
+const char BOOST[]                   = "BOOST";
+const char SHIELD[]                  = "SHIELD";
 
+constexpr inline Vec2 to_centered(const Vec2& v) {
+  return v + Vec2{-MAP_SEMI_WIDTH, -MAP_SEMI_HEIGHT};
+}
+
+constexpr inline Vec2 to_local(const Vec2& v) {
+  return v + Vec2{MAP_SEMI_WIDTH, MAP_SEMI_HEIGHT};
+}
 
 struct State {
-    Particle myShip;
+    Particle myPod;
+    Particle thPod;
     Vec2     myCpPos;
     Ray2     myCpRay;
-    Particle thShip;
-    Vec2     thCpPos;
-    Ray2     thCpRay;
 };
 
-typedef std::vector<Vec2> CheckPoints;
+inline State readState() {
+  int x;
+  int y;
+  int nextCheckpointX; // x position of the next check point
+  int nextCheckpointY; // y position of the next check point
+  int nextCheckpointDist; // distance to the next checkpoint
+  int nextCheckpointAngle; // angle between your pod orientation and the direction of the next checkpoint
+  cin >> x >> y >> nextCheckpointX >> nextCheckpointY >> nextCheckpointDist >> nextCheckpointAngle; cin.ignore();
+  int opponentX;
+  int opponentY;
+  cin >> opponentX >> opponentY; cin.ignore();
+  return State{Particle{to_centered({x, y}), Vec2{0, 0}, POD_RADIUS, 0},
+               Particle{to_centered({opponentY, opponentY}), Vec2{0, 0}, POD_RADIUS, 0},
+               to_centered({nextCheckpointX, nextCheckpointY}),
+               Ray2{nextCheckpointAngle, nextCheckpointDist}};
+}
+
+typedef vector<tuple<Vec2, bool>> CheckPoints;
 
 struct History {
   Ring<State, 4> states;
 };
-
-using std::cout;
-using std::cin;
-using std::endl;
 
 inline void thrust(int x, int y, int t) {
     if (t > 100) t = 100;
     if (t < 0) t = 0;
     cout << x << " " << y << " " << t << endl;
 }
+inline void thrust(const Vec2& p, int t) {
+  Vec2 l = to_local(p);
+  thrust(x(l), y(l), t);
+}
 
 inline void boost(int x, int y) {
     cout << x << " " << y << " BOOST" << endl;
 }
-
+inline void boost(const Vec2& p) {
+  Vec2 l = to_local(p);
+  boost(x(l), y(l));
+}
 
 /**
- * Auto-generated code below aims at helping you parse
- * the standard input according to the problem statement.
+ * Rotation & acceleration test
  **/
 int main()
 {
     bool boost_used = false;
-
+    Vec2 aim{0, 0};
+    State s = readState();
+    thrust(s.myCpPos, 100);
+    int pastAngle = angle(s.myCpRay);
+    Vec2 pastPos = pos(s.myPod);
+    Vec2 pastSpeed = {0, 0};
     // game loop
     while (1) {
-        int x;
-        int y;
-        int nextCheckpointX; // x position of the next check point
-        int nextCheckpointY; // y position of the next check point
-        int nextCheckpointDist; // distance to the next checkpoint
-        int nextCheckpointAngle; // angle between your pod orientation and the direction of the next checkpoint
-        cin >> x >> y >> nextCheckpointX >> nextCheckpointY >> nextCheckpointDist >> nextCheckpointAngle; cin.ignore();
-        int opponentX;
-        int opponentY;
-        cin >> opponentX >> opponentY; cin.ignore();
-
-        if (nextCheckpointDist < 600) {
-            if (abs(nextCheckpointAngle) < 70)
-                thrust(nextCheckpointX, nextCheckpointY, icos(nextCheckpointAngle, 100) - 20);
-            else
-                thrust(nextCheckpointX, nextCheckpointY, 0);
-        }
-        else if (nextCheckpointDist < 1000) {
-            if (abs(nextCheckpointAngle) < 90)
-                thrust(nextCheckpointX, nextCheckpointY, icos(nextCheckpointAngle, 100));
-            else
-                thrust(nextCheckpointX, nextCheckpointY, 0);
-        }
-        else if (nextCheckpointDist < 4000) {
-            if (abs(nextCheckpointAngle) < 100)
-                thrust(nextCheckpointX, nextCheckpointY, icos(nextCheckpointAngle, 100) + 30);
-            else
-                thrust(nextCheckpointX, nextCheckpointY, 0);
-        }
-        else {
-            if (abs(nextCheckpointAngle) < 30 && !boost_used) {
-                boost(nextCheckpointX, nextCheckpointY);
-                boost_used = true;
-            }
-            else if (abs(nextCheckpointAngle) < 100)
-                thrust(nextCheckpointX, nextCheckpointY, icos(nextCheckpointAngle, 100) + 50);
-            else
-                thrust(nextCheckpointX, nextCheckpointY, 0);
-        }
+      s = readState();
+      spd(s.myPod) = pos(s.myPod) - pastPos;
+      cerr << "Acceleration " << spd(s.myPod) - pastSpeed << " (" << mag(spd(s.myPod) - pastSpeed) << ")" << endl;
+      cerr << "Rotated " << angle(s.myCpRay) - pastAngle << endl;
+      thrust(s.myCpPos, 100);
+      pastPos  = pos(s.myPod);
+      pastSpeed = spd(s.myPod);
+      pastAngle = angle(s.myCpRay);
     }
 }
