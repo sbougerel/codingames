@@ -404,6 +404,73 @@ private:
   int _spin;
 };
 
+// Dragmodels functors return the force of drag execrted on a particle in a
+// medium, given its present characteristics.
+//
+// VaccumDragModel is special in a sense that the model always returns {0, 0}
+// for the drag.
+struct VaccumDragModel
+{
+  Vec2 operator() (const Particle&) { return {0, 0}; }
+};
+
+// This simple model seem to be present in several puzzles. For a given type of
+// vehicle, it models drag as a ratio of the terminal velocity of the vehicle in
+// the medium, applied to the maximum thrust of the vehicle. This ensures that
+// the vehicle cannot normaly accelerate beyond it's top speed.
+template<int MAX_THRUST, int MAX_VELOCITY>
+struct SimpleDragModel
+{
+  Vec2 operator() (const Particle& p) {
+    return (-spd(p) * MAX_THRUST) / MAX_VELOCITY;
+  }
+};
+
+// ThrustModels functors apply a force on a present particle, computing its
+// future position based on the force applied.
+//
+// InstantThrustModel applies the force as if it had pushed the particle
+// intantaneously with that force, propelling it to the expected speed in an
+// instant. This model is not realistic, but seem to occur in the puzzles.
+struct InstantThrustModel
+{
+  Particle operator() (const Particle& p, const Vec2& t) {
+    Vec2 a_ = t / mass(p);
+    Vec2 p_ = a_ + spd(p) + pos(p);
+    Vec2 s_ = a_ + spd(p);
+    return {p_, s_, rad(p), mass(p)};
+  }
+};
+
+// RealisticThrustModel applies the force as if it had pushed the particle
+// progressively with that force, propelling it to the expected speed in that
+// instant. This model is closer to reality, hence the name. It's not the thrust
+// model I've encountered in the puzzles however.
+struct RealisticThrustModel
+{
+  Particle operator() (const Particle& p, const Vec2& t) {
+    Vec2 a_ = t / mass(p);
+    Vec2 p_ = a_ / 2 + spd(p) + pos(p);
+    Vec2 s_ = a_ + spd(p);
+    return {p_, s_, rad(p), mass(p)};
+  }
+};
+
+// Models functors attempt to compute the future of a particle based on its known
+// present state. They composes with Thurst model functors and a Drag model
+// functors to compute the future position.
+//
+// BasicModel just makes the particle move toward a target based on a
+// thrust. It is common in puzzles. The target is set in the constructor.
+template<typename ThrustModel,
+         typename DragModel>
+struct BasicModel
+{
+  Particle operator() (const Particle&) {
+    return {};
+  }
+};
+
 // Given two positions at discreet time t0 and t1 and a distance of closest
 // appraoch `sqrad`, perform recursive halving of the time interval to check
 // whether the particle collided.
@@ -430,34 +497,35 @@ inline int collide_int_sq(Vec2 x0, Vec2 y0, Vec2 x1, Vec2 y1, int sqrad) {
 }
 
 // Collision Detection algorithm. Returns the distance of collision, an a
-// posteriori estimate of the closest approach between the 2 particles (squared)
+// posteriori estimate of the closest approach between 2 particles (squared)
 // and the time to collision. When closest approach <= distance of collision,
 // collision has occured.
 //
 // The estimation stops after max_iter, which is 100 by default, or when one of
 // the particle gets out of the bounding box.
 //
-// The estimation is based on the ThrustGradiant associated with both
-// particles.
+// The estimation is based on the movement Model associated with both
+// particles. At each turn, the model is updated with the particles' positions,
+// and it queries the thrust for each of the particles.
 //
-template<typename TG1, typename TG2>
+template<typename AgentA, typename AgentB>
 inline std::tuple<int, int, int>
-collide_sq(Particle x0, Particle y0, const TG1& tx, const TG2& ty,
+collide_sq(Particle a0, Particle b0, const AgentA& ma, const AgentB& mb,
             int max_iter = 100, const Box2& bb = {{-10000,-10000}, {10000, 10000}}) {
-  int sqrad = sq(rad(x0)) + sq(rad(y0));
-  int best_approach = distsq(pos(x0), pos(y0));
+  int sqrad = sq(rad(a0)) + sq(rad(b0));
+  int best_approach = distsq(pos(a0), pos(b0));
   if (best_approach <= sqrad)
     { return std::make_tuple(sqrad, best_approach, 0); }
   int i = 0;
   for (; i < max_iter; ++i) {
-    Particle x1 = free_move(x0, at(tx, i));
-    Particle y1 = free_move(y0, at(ty, i));
-    if (!within(bb, pos(x1)) || !within(bb, pos(y1))) break;
-    int approach = collide_int_sq(pos(x0), pos(y0), pos(x1), pos(y1), sqrad);
+    Particle a1 = free_move(a0, at(ma, i));
+    Particle b1 = free_move(b0, at(mb, i));
+    if (!within(bb, pos(a1)) || !within(bb, pos(b1))) break;
+    int approach = collide_int_sq(pos(a0), pos(b0), pos(a1), pos(b1), sqrad);
     if (approach <= sqrad)
       { return std::make_tuple(sqrad, approach, i); }
     if (approach < best_approach) { best_approach = approach; }
-    x0 = x1; y0 = y1;
+    a0 = a1; b0 = b1;
   }
   return std::make_tuple(sqrad, best_approach, i);
 }
@@ -480,7 +548,9 @@ struct Ring {
   ~Ring() { delete _data; }
 
   void rotate() {
-    for (unsigned i = N - 1; i > 0; --i) { std::swap(_addr[i], _addr[i - 1]); }
+    Tp* copy = _addr[N - 1];
+    for (unsigned i = N - 1; i > 0; --i) { _addr[i] = _addr[i - 1]; }
+    _addr[0] = copy;
   }
 
   std::array<Tp, N>& items() { return *_data; }
