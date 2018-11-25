@@ -140,33 +140,33 @@ BOOST_AUTO_TEST_CASE(test_ray2_norm){
 
 BOOST_AUTO_TEST_CASE(test_free_move) {
   // Make 2 particles at the edge of the board, facing each other
-  Particle x0 = {{-10000, 0}, {100, 0}, 500, 1};
+  Particle x0 = {{-10000, 0}, {100, 0}, {0, 0}, 500, 1};
   // The second implementation is actually less precise.
-  BOOST_CHECK_LT(iabs(x(pos(free_move(x0, ConstantThrust({-1, 0}), 100)))
-                      - x(pos(free_move(x0, ConstantThrust({-1, 0}), 100, VariableThrustGradient())))),
+  BOOST_CHECK_LT(iabs(x(pos(linear_motion(x0, {-1, 0}, 100)))
+                      - x(pos(iterate(100, x0, ConstantAction<RealisticThrustModel,VaccumDragModel>({-1, 0}))))),
                  100);
 }
 
 BOOST_AUTO_TEST_CASE(test_collide_int) {
   // At bounds
-  BOOST_CHECK_EQUAL(collide_int_sq(Vec2({0, 0}), Vec2({0, 0}),
+  BOOST_CHECK_EQUAL(linear_collide(Vec2({0, 0}), Vec2({0, 0}),
                                    Vec2({0, 0}), Vec2({0, 0}), 0),
                     0);
   // Parallel, never really meets: check against forever loops
-  BOOST_CHECK_EQUAL(collide_int_sq(Vec2({0, 0}), Vec2({0, 1000}),
+  BOOST_CHECK_EQUAL(linear_collide(Vec2({0, 0}), Vec2({0, 1000}),
                                    Vec2({1000, 0}), Vec2({1000, 1000}), 1000000),
                     1000000);
   // Face each others: collide
-  BOOST_CHECK_EQUAL(collide_int_sq(Vec2({0, 0}), Vec2({0, 1000}),
+  BOOST_CHECK_EQUAL(linear_collide(Vec2({0, 0}), Vec2({0, 1000}),
                                    Vec2({0, 1000}), Vec2({0, 0}), 100),
                     100);
   // Cross each others: collide
-  BOOST_CHECK_EQUAL(collide_int_sq(Vec2({-10000, 0}), Vec2({0, 10000}),
+  BOOST_CHECK_EQUAL(linear_collide(Vec2({-10000, 0}), Vec2({0, 10000}),
                                    Vec2({10000, 0}), Vec2({0, -10000}),
                                    100),
                     100);
   // Follow each other: miss
-  BOOST_CHECK_EQUAL(collide_int_sq(Vec2({-10000, 0}), Vec2({0, 0}),
+  BOOST_CHECK_EQUAL(linear_collide(Vec2({-10000, 0}), Vec2({0, 0}),
                                    Vec2({0, 0}), Vec2({10000, 0}),
                                    10000000),
                     100000000);
@@ -174,21 +174,23 @@ BOOST_AUTO_TEST_CASE(test_collide_int) {
 
 BOOST_AUTO_TEST_CASE(test_collide_sq) {
   // Make 2 particles at the edge of the board, facing each other
-  Particle x0 = {{-10000, 0}, {100, 0}, 500, 1};
-  Particle x1 = {{10000, 0}, {-100, 0}, 500, 1};
+  Particle x0 = {{-10000, 0}, {100, 0}, {0, 0}, 500, 1};
+  Particle x1 = {{10000, 0}, {-100, 0}, {0, 0}, 500, 1};
   // In vaccum, without acceleration, they should collide
-  BOOST_CHECK_EQUAL(std::get<1>(collide_sq(x0, x1, ZeroThrust(), ZeroThrust())),
+  typedef CoastingAction<InstantThrustModel, VaccumDragModel> coasting;
+  BOOST_CHECK_EQUAL(std::get<1>(collide_two(x0, x1, coasting(), coasting())),
                     sq(500) + sq(500));
   // Now with a constant acceleration, opposite to the speed, they get close but
   // do not touch. Compare with the similarly imprecise version.
-  BOOST_CHECK_EQUAL(std::get<1>(collide_sq(x0, x1, ConstantThrust({-1, 0}), ConstantThrust({1, 0}))),
-                    distsq(pos(free_move(x0, ConstantThrust({-1, 0}), 100, VariableThrustGradient())),
-                           pos(free_move(x1, ConstantThrust({1, 0}), 100, VariableThrustGradient()))));
-  // Now with a rotation colliding (still moving into each others)
-  BOOST_CHECK_EQUAL(std::get<1>(collide_sq(x0, x1, RotatingThrust({0, 2}, 1), RotatingThrust({180, 2}, -1))),
+  typedef ConstantAction<RealisticThrustModel, VaccumDragModel> constant;
+  BOOST_CHECK_EQUAL(std::get<1>(collide_two(x0, x1, constant({-1, 0}), constant({1, 0}))),
+                    distsq(pos(linear_motion(x0, {-1, 0}, 100)),
+                           pos(linear_motion(x1, {1, 0}, 100))));
+  // Now aiming for a collision at a lower point (still moving into each others)
+  typedef TargetAction<InstantThrustModel, VaccumDragModel> targeting;
+  BOOST_CHECK_EQUAL(std::get<1>(collide_two(x0, x1, targeting({0, 2000}, 1), targeting({0, 2000}, 1))),
                     sq(500) + sq(500));
-  // Now with a rotation avoiding each others
-  BOOST_CHECK_EQUAL(std::get<1>(collide_sq(x0, x1, RotatingThrust({180, 2}, 1), RotatingThrust({0, 2}, 1))),
-                    distsq(pos(free_move(x0, RotatingThrust({180, 2}, 1), 100)),
-                           pos(free_move(x1, RotatingThrust({0, 2},  1), 100))));
+  // Now aiming for avoidance
+  BOOST_CHECK_EQUAL(std::get<1>(collide_two(x0, x1, targeting({0, -2000}, 1), targeting({0, 2000}, 1))),
+                    sq(500) + sq(500));
 }

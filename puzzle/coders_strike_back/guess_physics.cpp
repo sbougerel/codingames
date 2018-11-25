@@ -579,7 +579,7 @@ struct State {
 inline Vec2 drag(const Vec2& spd) {
   // Defines the drag model for a vehicle, according to its MAX_THRUST,
   // MAX_SPEED, such that it compensates vehicle max thrust fully at max speed.
-  return (-spd * MAX_THRUST) / MAX_SPEED;
+  return norm(-spd, (mag(spd) * MAX_THRUST) / MAX_SPEED);
 }
 
 inline State readState() {
@@ -631,27 +631,28 @@ inline void boost(const Vec2& p) {
  **/
 int main()
 {
-    History hist(State{Particle{{0, 0}, {0, 0}, POD_RADIUS, POD_MASS},
-                       Particle{{0, 0}, {0, 0}, POD_RADIUS, POD_MASS},
-                       {0, 0}, {0, 0}});
-    auto curr = anchor<0>(hist);
-    auto prev = anchor<1>(hist);
+  bool boost_used = false;
+  History hist(State{Particle{{0, 0}, {0, 0}, POD_RADIUS, POD_MASS},
+                     Particle{{0, 0}, {0, 0}, POD_RADIUS, POD_MASS},
+                     {0, 0}, {0, 0}});
+  auto curr = anchor<0>(hist);
+  auto prev = anchor<1>(hist);
+  *curr = readState();
+  Vec2 aim{MAP_SEMI_HEIGHT, MAP_SEMI_HEIGHT};
+  thrust(aim, 100);
+  // game loop
+  while (1) {
+    hist.rotate();
     *curr = readState();
     updateState(*curr, *prev);
-    Vec2 aim{MAP_SEMI_WIDTH, 0};
+    cerr << "Last pos " << pos(prev->myPod) << " Curr pos " << pos(curr->myPod) << endl;
+    cerr << "Speed " << spd(curr->myPod) << " (" << mag(spd(curr->myPod)) << ")" << endl;
+    Vec2 pred_speed = spd(prev->myPod) + norm(spd(prev->myPod), 100) + drag(spd(prev->myPod));
+    cerr << "(Predicated Speed " << pred_speed << " (" << mag(pred_speed) << "))" << endl;
+    cerr << "Accel " << spd(curr->myPod) - spd(prev->myPod) << " (" << mag(spd(curr->myPod) - spd(prev->myPod)) << ")" << endl;
+    cerr << "Rotated " << angle(curr->myCpRay) - angle(prev->myCpRay) << endl;
+    if ((x(aim) > 0 && x(pos(curr->myPod)) > x(aim))
+        || (x(aim) < 0 && x(pos(curr->myPod)) < x(aim))) aim = -aim;
     thrust(aim, 100);
-    // game loop
-    while (1) {
-      hist.rotate();
-      *curr = readState();
-      updateState(*curr, *prev);
-      cerr << "Speed " << spd(curr->myPod) << " (" << mag(spd(curr->myPod)) << ")" << endl;
-      Vec2 pred_speed = spd(prev->myPod) + norm(spd(prev->myPod), 100) + drag(spd(prev->myPod));
-      cerr << "(Predicated Speed " << pred_speed << " (" << mag(pred_speed) << "))" << endl;
-      cerr << "Accel " << spd(curr->myPod) - spd(prev->myPod) << " (" << mag(spd(curr->myPod) - spd(prev->myPod)) << ")" << endl;
-      cerr << "Rotated " << angle(curr->myCpRay) - angle(prev->myCpRay) << endl;
-      if ((x(aim) > 0 && x(pos(curr->myPod)) > x(aim))
-          || (x(aim) < 0 && x(pos(curr->myPod)) < x(aim))) x(aim) = -x(aim);
-      thrust(aim, 100);
-    }
+  }
 }

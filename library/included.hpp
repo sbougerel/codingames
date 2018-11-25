@@ -193,6 +193,12 @@ constexpr inline Vec2 operator* (const Vec2& a, int factor)
 constexpr inline Vec2 operator/ (const Vec2& a, int factor)
 { return {x(a) / factor, y(a) / factor}; }
 
+constexpr inline Vec2 operator* (const Vec2& a, float factor)
+{ return {int(float(x(a)) * factor), int(float(y(a)) * factor)}; }
+
+constexpr inline Vec2 operator/ (const Vec2& a, float factor)
+{ return {int(float(x(a)) / factor), int(float(y(a)) / factor)}; }
+
 inline Vec2 operator<< (const Vec2& a, int factor)
 { return {x(a) << factor, y(a) << factor}; }
 
@@ -248,6 +254,30 @@ constexpr inline bool within(const Box2& b, const Vec2& v) {
           && y(v) >= y(low(b)) && y(v) < y(high(b)));
 }
 
+// Given two positions at discreet time t0 and t1 and a distance of closest
+// appraoch `sqrad`, perform recursive halving of the time interval to check
+// whether the particle collided.
+inline int linear_collide(Vec2 x0, Vec2 y0, Vec2 x1, Vec2 y1, int sqrad) {
+  constexpr const int stop_delta = 4;
+  int sqd0 = distsq(x0, y0);
+  if (sqd0 < sqrad) { return sqrad; }
+  int sqd1 = distsq(x1, y1);
+  while (true)
+    {
+      if (sqd1 < sqrad) { return sqrad; }
+      if (   distsq(x0, x1) < stop_delta
+          || distsq(y0, y1) < stop_delta) { break; }
+      Vec2 xh = (x0 + x1) / 2;
+      Vec2 yh = (y0 + y1) / 2;
+      int sqd = distsq(xh, yh);
+      if (sqd >= sqrad + magsq(x0 - xh) + magsq(y0 - yh)) { break; }
+      if (sqd0 > sqd1)        // converge faster: chose the closest side
+        { x0 = x1; y0 = y1; }
+      x1 = xh; y1 = yh; sqd1 = sqd;
+    }
+  return (sqd0 < sqd1) ? sqd0 : sqd1;
+}
+
 // The basic polar coordinate information, with an angle in degree and a radius
 // equivalent to the distance to the pole. Radius is always positive. If it is
 // found to be negative, program behaviour will be undefined.
@@ -290,8 +320,9 @@ inline Ray2 ray(const Vec2& a) {
 struct Particle {
   Vec2 pos;
   Vec2 spd;
+  Vec2 acc;
   int rad;
-  int mass;
+  float mass;
 };
 
 // The 4 pairs of accessor in the particule trait are defined below.  A particle
@@ -301,10 +332,12 @@ constexpr inline const Vec2& pos(const Particle& a) { return a.pos; }
 constexpr inline Vec2& pos(Particle& a) { return a.pos; }
 constexpr inline const Vec2& spd(const Particle& a) { return a.spd; }
 constexpr inline Vec2& spd(Particle& a) { return a.spd; }
+constexpr inline const Vec2& acc(const Particle& a) { return a.acc; }
+constexpr inline Vec2& acc(Particle& a) { return a.acc; }
 constexpr inline int rad(const Particle& a) { return a.rad; }
 constexpr inline int& rad(Particle& a) { return a.rad; }
-constexpr inline int mass(const Particle& a) { return a.mass; }
-constexpr inline int& mass(Particle& a) { return a.mass; }
+constexpr inline float mass(const Particle& a) { return a.mass; }
+constexpr inline float& mass(Particle& a) { return a.mass; }
 
 constexpr inline bool operator==(const Particle& a, const Particle& b) {
   return (pos(a) == pos(b)
@@ -320,181 +353,172 @@ inline std::ostream& operator<<(std::ostream& o, const Particle& a) {
   return o;
 }
 
-inline Particle free_move(const Particle& p) {
-  return {spd(p) + pos(p), spd(p), rad(p), mass(p)};
+inline Particle linear_motion(const Particle& p) {
+  return {spd(p) + pos(p), spd(p), {0, 0}, rad(p), mass(p)};
 }
 
-inline Particle free_move(const Particle& p, const Vec2& a) {
-  Vec2 p_ = a / 2 + spd(p) + pos(p);
-  Vec2 s_ = a + spd(p);
-  return {p_, s_, rad(p), mass(p)};
+inline Particle linear_motion(const Particle& p, const Vec2& t) {
+  Vec2 a_ = t / mass(p);
+  Vec2 p_ = a_ / 2 + spd(p) + pos(p);
+  Vec2 s_ = a_+ spd(p);
+  return {p_, s_, a_, rad(p), mass(p)};
 }
 
-// Policy for static dispatch during motion calculation. Needed since under
-// constant policy we can do some nice optimizations in calcuation. And Constant
-// acceleration is likely to happen very often.
-struct ConstantThrustGradient { };
-struct VariableThrustGradient { };
-
-// Objects implementing the ThurstGradient trait only need to define at(), which
-// must return a Vec2 object representing the acceleration to apply to a
-// particule `p`. `iterations` is the number of steps to look into the future.
-template<typename TG>
-inline Vec2 at(const TG& tg, int iterations) {
-  return tg.at(iterations);
-}
-
-template<typename TG>
-inline Particle free_move(const Particle& p, const TG& t, int iterations, ConstantThrustGradient) {
-  Vec2 a_ = at(t, 0);
+inline Particle linear_motion(const Particle& p, const Vec2& t, int iterations) {
+  Vec2 a_ = t / mass(p);
   Vec2 p_ = (a_ * sq(iterations)) / 2 + spd(p) * iterations + pos(p);
   Vec2 s_ = a_ * iterations + spd(p);
-  return {p_, s_, rad(p), mass(p)};
+  return {p_, s_, a_, rad(p), mass(p)};
 }
 
-template<typename TG>
-inline Particle free_move(const Particle& p, const TG& t, int iterations, VariableThrustGradient) {
-  Vec2 p_ = pos(p);
-  Vec2 s_ = spd(p);
-  for (int i = 0; i < iterations; ++i) {
-    Vec2 a_ = at(t, i);
-    p_ = a_ / 2 + s_ + p_;
-    s_ = a_ + s_;
+// ThrustModels functors apply a force on a present particle, computing its
+// future position based on the force applied.
+//
+// InstantThrustModel applies the force as if it the particle had no mass, thus
+// propelling it to the expected speed in an instant. This model is not
+// realistic, but seem to occur in the puzzles. Mass is ignored in this model.
+struct InstantThrustModel
+{
+  Particle operator() (const Particle& p, const Vec2& t) const {
+    Vec2 p_ = t + spd(p) + pos(p);
+    Vec2 s_ = t + spd(p);
+    return {p_, s_, t, rad(p), mass(p)};
   }
-  return {p_, s_, rad(p), mass(p)};
-}
-
-template<typename TG>
-inline Particle free_move(const Particle& p, const TG& t, int iterations) {
-  // static dispatch
-  return free_move(p, t, iterations, typename TG::ThrustGradient());
-}
-
-// Zero thrust is here to be optimized away such that using this in a
-// `free_move` function should compile to the same instruction as the
-// `free_move` function without ThrustGradient;
-struct ZeroThrust {
-  typedef ConstantThrustGradient ThrustGradient;
-  constexpr Vec2 at(int) const { return {0, 0}; }
 };
 
-// ConstantThrust is a ThurstGradiant implementation where the thrust will
-// remain constant overtime.
-struct ConstantThrust {
-  typedef ConstantThrustGradient ThrustGradient;
-
-  ConstantThrust(const Vec2& accel) : _accel(accel) { }
-  constexpr Vec2 at(int) const { return _accel; }
-
-private:
-  Vec2 _accel;
-};
-
-// RotatingThrust is a ThurstGradiant implementation where the thrust will
-// rotate overtime according to a constant angular speed (spin).
-struct RotatingThrust {
-  typedef VariableThrustGradient ThrustGradient;
-
-  RotatingThrust(const Ray2& thrust, int spin) : _thrust(thrust), _spin(spin) { }
-  Vec2 at(int iterations) const
-  { return vec(Ray2{_spin * iterations + angle(_thrust), rad(_thrust)}); }
-
-private:
-  Ray2 _thrust;
-  int _spin;
+// RealisticThrustModel applies the force as if it had pushed the particle
+// progressively with that force, propelling it to the expected speed in that
+// instant. This model is closer to reality, hence the name.
+struct RealisticThrustModel
+{
+  Particle operator() (const Particle& p, const Vec2& t) const {
+    return linear_motion(p, t);
+  }
 };
 
 // Dragmodels functors return the force of drag execrted on a particle in a
 // medium, given its present characteristics.
 //
 // VaccumDragModel is special in a sense that the model always returns {0, 0}
-// for the drag.
+// for the drag. Good for testing.
 struct VaccumDragModel
 {
-  Vec2 operator() (const Particle&) { return {0, 0}; }
+  Vec2 operator() (const Particle&) const { return {0, 0}; }
 };
 
 // This simple model seem to be present in several puzzles. For a given type of
 // vehicle, it models drag as a ratio of the terminal velocity of the vehicle in
 // the medium, applied to the maximum thrust of the vehicle. This ensures that
-// the vehicle cannot normaly accelerate beyond it's top speed.
+// the vehicle cannot normaly accelerate beyond its top speed.
 template<int MAX_THRUST, int MAX_VELOCITY>
-struct SimpleDragModel
+struct BasicDragModel
 {
-  Vec2 operator() (const Particle& p) {
-    return (-spd(p) * MAX_THRUST) / MAX_VELOCITY;
+  Vec2 operator() (const Particle& p) const {
+    return norm(-spd(p), (mag(spd(p)) * MAX_THRUST) / MAX_VELOCITY);
   }
 };
 
-// ThrustModels functors apply a force on a present particle, computing its
-// future position based on the force applied.
+// Action functors attempt to compute the future of a particle based on its
+// known present and a behaviour model. It composes with ThurstModel
+// functors and DragModel functors to compute the future position.
 //
-// InstantThrustModel applies the force as if it had pushed the particle
-// intantaneously with that force, propelling it to the expected speed in an
-// instant. This model is not realistic, but seem to occur in the puzzles.
-struct InstantThrustModel
-{
-  Particle operator() (const Particle& p, const Vec2& t) {
-    Vec2 a_ = t / mass(p);
-    Vec2 p_ = a_ + spd(p) + pos(p);
-    Vec2 s_ = a_ + spd(p);
-    return {p_, s_, rad(p), mass(p)};
-  }
-};
+// `iterate` and `until` project actions on particles.
+template<typename Action>
+inline Particle iterate(unsigned times, Particle p, const Action& a) {
+  for (unsigned i = 0; i < times; ++i) { p = a(p); }
+  return p;
+}
 
-// RealisticThrustModel applies the force as if it had pushed the particle
-// progressively with that force, propelling it to the expected speed in that
-// instant. This model is closer to reality, hence the name. It's not the thrust
-// model I've encountered in the puzzles however.
-struct RealisticThrustModel
-{
-  Particle operator() (const Particle& p, const Vec2& t) {
-    Vec2 a_ = t / mass(p);
-    Vec2 p_ = a_ / 2 + spd(p) + pos(p);
-    Vec2 s_ = a_ + spd(p);
-    return {p_, s_, rad(p), mass(p)};
-  }
-};
+template<typename Action, typename Predicate>
+inline Particle until(Particle p, const Action& a, const Predicate& t) {
+  while (!t(p)) { p = a(p); }
+  return p;
+}
 
-// Models functors attempt to compute the future of a particle based on its known
-// present state. They composes with Thurst model functors and a Drag model
-// functors to compute the future position.
-//
-// BasicModel just makes the particle move toward a target based on a
-// thrust. It is common in puzzles. The target is set in the constructor.
+// CoastingModel just makes the particle decelrate by drag. Important to compute
+// break distance under drag.
 template<typename ThrustModel,
          typename DragModel>
-struct BasicModel
+struct CoastingAction
+  : private ThrustModel, DragModel // Empty member optimisation
 {
-  Particle operator() (const Particle&) {
-    return {};
+  CoastingAction(const ThrustModel& tm = ThrustModel(),
+                 const DragModel& dm = DragModel())
+    : ThrustModel(tm), DragModel(dm) { }
+  Particle operator() (const Particle& p) const {
+    return ThrustModel::operator()(p, DragModel::operator()(p));
   }
 };
 
-// Given two positions at discreet time t0 and t1 and a distance of closest
-// appraoch `sqrad`, perform recursive halving of the time interval to check
-// whether the particle collided.
-//
-inline int collide_int_sq(Vec2 x0, Vec2 y0, Vec2 x1, Vec2 y1, int sqrad) {
-  constexpr const int stop_delta = 4;
-  int sqd0 = distsq(x0, y0);
-  if (sqd0 < sqrad) { return sqrad; }
-  int sqd1 = distsq(x1, y1);
-  while (true)
-    {
-      if (sqd1 < sqrad) { return sqrad; }
-      if (   distsq(x0, x1) < stop_delta
-          || distsq(y0, y1) < stop_delta) { break; }
-      Vec2 xh = (x0 + x1) / 2;
-      Vec2 yh = (y0 + y1) / 2;
-      int sqd = distsq(xh, yh);
-      if (sqd >= sqrad + magsq(x0 - xh) + magsq(y0 - yh)) { break; }
-      if (sqd0 > sqd1)        // converge faster: chose the closest side
-        { x0 = x1; y0 = y1; }
-      x1 = xh; y1 = yh; sqd1 = sqd;
-    }
-  return (sqd0 < sqd1) ? sqd0 : sqd1;
-}
+// ConstantAction just makes the particle accelerate with a constant thrust
+// applied in the same direction. Good for tests.
+template<typename ThrustModel,
+         typename DragModel>
+struct ConstantAction
+  : private ThrustModel, DragModel // Empty member optimisation
+{
+  ConstantAction(const Vec2& thrust,
+                 const ThrustModel& tm = ThrustModel(),
+                 const DragModel& dm = DragModel())
+    : ThrustModel(tm), DragModel(dm), _thrust(thrust) { }
+  Particle operator() (const Particle& p) const {
+    Vec2 a = _thrust + DragModel::operator()(p);
+    return ThrustModel::operator()(p, a);
+  }
+private:
+  Vec2 _thrust;
+};
+
+// TargetAction just makes the particle move toward a target with a constant
+// thrust. It is only slightly more useful than BasicModel in puzzles. The
+// target is set in the constructor.
+template<typename ThrustModel,
+         typename DragModel>
+struct TargetAction
+  : private ThrustModel, DragModel // Empty member optimisation
+{
+  TargetAction(const Vec2& target, int thrust,
+               const ThrustModel& tm = ThrustModel(),
+               const DragModel& dm = DragModel())
+    : ThrustModel(tm), DragModel(dm), _target(target), _thrust(thrust) { }
+  Particle operator() (const Particle& p) const {
+    Vec2 a = norm(_target - pos(p), _thrust) + DragModel::operator()(p);
+    return ThrustModel::operator()(p, a);
+  }
+private:
+  Vec2 _target;
+  int _thrust;
+};
+
+// SmartAction uses drag to slow down when approaching, tries to compensate its
+// orientation and understand maximum rotation speed of the vehicle. This model
+// is only a few lines but can be used to simulate basic bots.
+template<int MAX_THRUST, int MAX_ANGSPD,
+         typename ThrustModel,
+         typename DragModel>
+struct SmartAction
+  : private ThrustModel, DragModel // Empty member optimisation
+{
+  SmartAction(const Vec2& target, int radius,
+              const ThrustModel& tm = ThrustModel(),
+              const DragModel& dm = DragModel())
+    : ThrustModel(tm), DragModel(dm), _target(target), _radius(radius) { }
+  Particle operator() (const Particle& p) const {
+    // int dtsq = distsq(pos(p), _target);
+    // Particle stop = until(p, CoastingAction<ThrustModel, DragModel>(),
+    //                       [](const Particle& p){ return magsq(spd(p)) < 4; });
+    // int dssq = distsq(pos(p), pos(stop));
+
+    Vec2 drag = DragModel::operator()(p);
+    Vec2 accel = norm(_target - pos(p), _thrust);
+    return ThrustModel::operator()(p, accel + drag);
+  }
+private:
+  Vec2 _target;
+  int _radius;
+  int _thrust;
+  int _rotspd;
+};
 
 // Collision Detection algorithm. Returns the distance of collision, an a
 // posteriori estimate of the closest approach between 2 particles (squared)
@@ -508,9 +532,9 @@ inline int collide_int_sq(Vec2 x0, Vec2 y0, Vec2 x1, Vec2 y1, int sqrad) {
 // particles. At each turn, the model is updated with the particles' positions,
 // and it queries the thrust for each of the particles.
 //
-template<typename AgentA, typename AgentB>
+template<typename ActionA, typename ActionB>
 inline std::tuple<int, int, int>
-collide_sq(Particle a0, Particle b0, const AgentA& ma, const AgentB& mb,
+collide_two(Particle a0, Particle b0, const ActionA& ma, const ActionB& mb,
             int max_iter = 100, const Box2& bb = {{-10000,-10000}, {10000, 10000}}) {
   int sqrad = sq(rad(a0)) + sq(rad(b0));
   int best_approach = distsq(pos(a0), pos(b0));
@@ -518,10 +542,10 @@ collide_sq(Particle a0, Particle b0, const AgentA& ma, const AgentB& mb,
     { return std::make_tuple(sqrad, best_approach, 0); }
   int i = 0;
   for (; i < max_iter; ++i) {
-    Particle a1 = free_move(a0, at(ma, i));
-    Particle b1 = free_move(b0, at(mb, i));
+    Particle a1 = ma(a0);
+    Particle b1 = mb(b0);
     if (!within(bb, pos(a1)) || !within(bb, pos(b1))) break;
-    int approach = collide_int_sq(pos(a0), pos(b0), pos(a1), pos(b1), sqrad);
+    int approach = linear_collide(pos(a0), pos(b0), pos(a1), pos(b1), sqrad);
     if (approach <= sqrad)
       { return std::make_tuple(sqrad, approach, i); }
     if (approach < best_approach) { best_approach = approach; }
