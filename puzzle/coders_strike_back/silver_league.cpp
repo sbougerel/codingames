@@ -69,6 +69,16 @@ constexpr inline int isgv(int gate, int pos, int neg) {
   return (pos|t) - t + (t & neg);
 }
 
+// max() returns `a` if `a` is greater than `b`, and `b` otherwise.
+constexpr inline int imax(int a, int b) {
+  return isgv(a - b, a, b);
+}
+
+// min() returns `a` if `a` is lower than `b`, and `b` otherwise.
+constexpr inline int imin(int a, int b) {
+  return isgv(b - a, a, b);
+}
+
 // amp() returns `boost` if `gate` is a positive integer or 0, and returns
 // `boost` otherwise for integers in complement 2 notation;
 //
@@ -193,6 +203,12 @@ constexpr inline Vec2 operator* (const Vec2& a, int factor)
 constexpr inline Vec2 operator/ (const Vec2& a, int factor)
 { return {x(a) / factor, y(a) / factor}; }
 
+constexpr inline Vec2 operator* (const Vec2& a, float factor)
+{ return {int(float(x(a)) * factor), int(float(y(a)) * factor)}; }
+
+constexpr inline Vec2 operator/ (const Vec2& a, float factor)
+{ return {int(float(x(a)) / factor), int(float(y(a)) / factor)}; }
+
 inline Vec2 operator<< (const Vec2& a, int factor)
 { return {x(a) << factor, y(a) << factor}; }
 
@@ -248,6 +264,30 @@ constexpr inline bool within(const Box2& b, const Vec2& v) {
           && y(v) >= y(low(b)) && y(v) < y(high(b)));
 }
 
+// Given two positions at discreet time t0 and t1 and a distance of closest
+// appraoch `sqrad`, perform recursive halving of the time interval to check
+// whether the particle collided.
+inline int linear_collide(Vec2 x0, Vec2 y0, Vec2 x1, Vec2 y1, int sqrad) {
+  constexpr const int stop_delta = 4;
+  int sqd0 = distsq(x0, y0);
+  if (sqd0 < sqrad) { return sqrad; }
+  int sqd1 = distsq(x1, y1);
+  while (true)
+    {
+      if (sqd1 < sqrad) { return sqrad; }
+      if (   distsq(x0, x1) < stop_delta
+          || distsq(y0, y1) < stop_delta) { break; }
+      Vec2 xh = (x0 + x1) / 2;
+      Vec2 yh = (y0 + y1) / 2;
+      int sqd = distsq(xh, yh);
+      if (sqd >= sqrad + magsq(x0 - xh) + magsq(y0 - yh)) { break; }
+      if (sqd0 > sqd1)        // converge faster: chose the closest side
+        { x0 = x1; y0 = y1; }
+      x1 = xh; y1 = yh; sqd1 = sqd;
+    }
+  return (sqd0 < sqd1) ? sqd0 : sqd1;
+}
+
 // The basic polar coordinate information, with an angle in degree and a radius
 // equivalent to the distance to the pole. Radius is always positive. If it is
 // found to be negative, program behaviour will be undefined.
@@ -290,8 +330,9 @@ inline Ray2 ray(const Vec2& a) {
 struct Particle {
   Vec2 pos;
   Vec2 spd;
+  Vec2 acc;
   int rad;
-  int mass;
+  float mass;
 };
 
 // The 4 pairs of accessor in the particule trait are defined below.  A particle
@@ -301,10 +342,12 @@ constexpr inline const Vec2& pos(const Particle& a) { return a.pos; }
 constexpr inline Vec2& pos(Particle& a) { return a.pos; }
 constexpr inline const Vec2& spd(const Particle& a) { return a.spd; }
 constexpr inline Vec2& spd(Particle& a) { return a.spd; }
+constexpr inline const Vec2& acc(const Particle& a) { return a.acc; }
+constexpr inline Vec2& acc(Particle& a) { return a.acc; }
 constexpr inline int rad(const Particle& a) { return a.rad; }
 constexpr inline int& rad(Particle& a) { return a.rad; }
-constexpr inline int mass(const Particle& a) { return a.mass; }
-constexpr inline int& mass(Particle& a) { return a.mass; }
+constexpr inline float mass(const Particle& a) { return a.mass; }
+constexpr inline float& mass(Particle& a) { return a.mass; }
 
 constexpr inline bool operator==(const Particle& a, const Particle& b) {
   return (pos(a) == pos(b)
@@ -316,148 +359,218 @@ constexpr inline bool operator!=(const Particle& a, const Particle& b)
 { return !(a == b); }
 
 inline std::ostream& operator<<(std::ostream& o, const Particle& a) {
-  o << "Particle({" << pos(a) << ", " << spd(a) << ", " << rad(a) << ", " << mass(a) << "})";
+  o << "Particle({" << pos(a) << ", " << spd(a) << ", " << acc(a) << ", " << rad(a) << ", " << mass(a) << "})";
   return o;
 }
 
-inline Particle free_move(const Particle& p) {
-  return {spd(p) + pos(p), spd(p), rad(p), mass(p)};
+inline Particle linear_motion(const Particle& p) {
+  return {spd(p) + pos(p), spd(p), {0, 0}, rad(p), mass(p)};
 }
 
-inline Particle free_move(const Particle& p, const Vec2& a) {
-  Vec2 p_ = a / 2 + spd(p) + pos(p);
-  Vec2 s_ = a + spd(p);
-  return {p_, s_, rad(p), mass(p)};
+inline Particle reaction(const Particle& p, const Vec2& t) {
+  Vec2 a_ = t / mass(p);
+  Vec2 p_ = a_ / 2 + spd(p) + pos(p);
+  Vec2 s_ = a_+ spd(p);
+  return {p_, s_, a_, rad(p), mass(p)};
 }
 
-// Policy for static dispatch during motion calculation. Needed since under
-// constant policy we can do some nice optimizations in calcuation. And Constant
-// acceleration is likely to happen very often.
-struct ConstantThrustGradient { };
-struct VariableThrustGradient { };
-
-// Objects implementing the ThurstGradient trait only need to define at(), which
-// must return a Vec2 object representing the acceleration to apply to a
-// particule `p`. `iterations` is the number of steps to look into the future.
-template<typename TG>
-inline Vec2 at(const TG& tg, int iterations) {
-  return tg.at(iterations);
-}
-
-template<typename TG>
-inline Particle free_move(const Particle& p, const TG& t, int iterations, ConstantThrustGradient) {
-  Vec2 a_ = at(t, 0);
+inline Particle reaction(const Particle& p, const Vec2& t, int iterations) {
+  Vec2 a_ = t / mass(p);
   Vec2 p_ = (a_ * sq(iterations)) / 2 + spd(p) * iterations + pos(p);
   Vec2 s_ = a_ * iterations + spd(p);
-  return {p_, s_, rad(p), mass(p)};
+  return {p_, s_, a_, rad(p), mass(p)};
 }
 
-template<typename TG>
-inline Particle free_move(const Particle& p, const TG& t, int iterations, VariableThrustGradient) {
-  Vec2 p_ = pos(p);
-  Vec2 s_ = spd(p);
-  for (int i = 0; i < iterations; ++i) {
-    Vec2 a_ = at(t, i);
-    p_ = a_ / 2 + s_ + p_;
-    s_ = a_ + s_;
-  }
-  return {p_, s_, rad(p), mass(p)};
-}
-
-template<typename TG>
-inline Particle free_move(const Particle& p, const TG& t, int iterations) {
-  // static dispatch
-  return free_move(p, t, iterations, typename TG::ThrustGradient());
-}
-
-// Zero thrust is here to be optimized away such that using this in a
-// `free_move` function should compile to the same instruction as the
-// `free_move` function without ThrustGradient;
-struct ZeroThrust {
-  typedef ConstantThrustGradient ThrustGradient;
-  constexpr Vec2 at(int) const { return {0, 0}; }
-};
-
-// ConstantThrust is a ThurstGradiant implementation where the thrust will
-// remain constant overtime.
-struct ConstantThrust {
-  typedef ConstantThrustGradient ThrustGradient;
-
-  ConstantThrust(const Vec2& accel) : _accel(accel) { }
-  constexpr Vec2 at(int) const { return _accel; }
-
-private:
-  Vec2 _accel;
-};
-
-// RotatingThrust is a ThurstGradiant implementation where the thrust will
-// rotate overtime according to a constant angular speed (spin).
-struct RotatingThrust {
-  typedef VariableThrustGradient ThrustGradient;
-
-  RotatingThrust(const Ray2& thrust, int spin) : _thrust(thrust), _spin(spin) { }
-  Vec2 at(int iterations) const
-  { return vec(Ray2{_spin * iterations + angle(_thrust), rad(_thrust)}); }
-
-private:
-  Ray2 _thrust;
-  int _spin;
-};
-
-// Given two positions at discreet time t0 and t1 and a distance of closest
-// appraoch `sqrad`, perform recursive halving of the time interval to check
-// whether the particle collided.
+// ThrustModels functors apply a force on a present particle, computing its
+// future position based on the force applied.
 //
-inline int collide_int_sq(Vec2 x0, Vec2 y0, Vec2 x1, Vec2 y1, int sqrad) {
-  constexpr const int stop_delta = 4;
-  int sqd0 = distsq(x0, y0);
-  if (sqd0 < sqrad) { return sqrad; }
-  int sqd1 = distsq(x1, y1);
-  while (true)
-    {
-      if (sqd1 < sqrad) { return sqrad; }
-      if (   distsq(x0, x1) < stop_delta
-          || distsq(y0, y1) < stop_delta) { break; }
-      Vec2 xh = (x0 + x1) / 2;
-      Vec2 yh = (y0 + y1) / 2;
-      int sqd = distsq(xh, yh);
-      if (sqd >= sqrad + magsq(x0 - xh) + magsq(y0 - yh)) { break; }
-      if (sqd0 > sqd1)        // converge faster: chose the closest side
-        { x0 = x1; y0 = y1; }
-      x1 = xh; y1 = yh; sqd1 = sqd;
-    }
-  return (sqd0 < sqd1) ? sqd0 : sqd1;
+// InstantThrustModel applies the force as if it the particle had no mass, thus
+// propelling it to the expected speed in an instant. This model is not
+// realistic, but seem to occur in the puzzles. Mass is ignored in this model.
+struct InstantThrustModel
+{
+  Particle operator() (const Particle& p, const Vec2& t) const {
+    Vec2 s_ = t + spd(p);
+    Vec2 p_ = s_ + pos(p);
+    return {p_, s_, t, rad(p), mass(p)};
+  }
+};
+
+// RealisticThrustModel applies the force as if it had pushed the particle
+// progressively with that force, propelling it to the expected speed in that
+// instant. This model is closer to reality, hence the name.
+struct RealisticThrustModel
+{
+  Particle operator() (const Particle& p, const Vec2& t) const {
+    return reaction(p, t);
+  }
+};
+
+// Dragmodels functors return the force of drag execrted on a particle in a
+// medium, given its present characteristics.
+//
+// VaccumDragModel is special in a sense that the model always returns {0, 0}
+// for the drag. Good for testing.
+struct VaccumDragModel
+{
+  Vec2 operator() (const Particle&) const { return {0, 0}; }
+};
+
+// This simple model seem to be present in several puzzles. For a given type of
+// vehicle, it models drag as a ratio of the terminal velocity of the vehicle in
+// the medium, applied to the maximum thrust of the vehicle. This ensures that
+// the vehicle cannot normaly accelerate beyond its top speed.
+template<int MAX_THRUST, int MAX_VELOCITY>
+struct BasicDragModel
+{
+  Vec2 operator() (const Particle& p) const {
+    return norm(-spd(p), (mag(spd(p)) * MAX_THRUST) / MAX_VELOCITY);
+  }
+};
+
+// CoastingAction just let the particle decelrate by drag. Important to compute
+// break distance under drag in any phyical model.
+struct CoastingAction
+{
+  Vec2 operator() (const Particle&) const { return {0, 0}; }
+};
+
+// ConstantAction just makes the particle accelerate with a constant thrust
+// applied in the same direction. Good for tests.
+struct ConstantAction
+{
+  ConstantAction(const Vec2& thrust) : _thrust(thrust) { }
+  Vec2 operator() (const Particle&) const { return _thrust; }
+private:
+  Vec2 _thrust;
+};
+
+// TargetAction just makes the particle move toward a target with a constant
+// thrust. It is only slightly more useful than BasicModel in puzzles. The
+// target is set in the constructor.
+struct TargetAction
+{
+  TargetAction(const Vec2& target, int thrust)
+    : _target(target), _thrust(thrust) { }
+  Vec2 operator() (const Particle& p) const {
+    return norm(_target - pos(p), _thrust);
+  }
+private:
+  Vec2 _target;
+  int _thrust;
+};
+
+// ImpTargetAction acts like TargetAction but also tries to compensate its own
+// lateral motion to reach the target faster. This model is only a few lines but
+// can be used to simulate basic bots.
+template<int MAX_CORRECTION> // maximum correction angle
+struct ImpTargetAction
+{
+  ImpTargetAction(const Vec2& target, int thrust)
+    : _target(target), _thrust(thrust) { }
+  Vec2 operator() (const Particle& p) const {
+    Ray2 orient = ray(spd(p));
+    Ray2 guide  = ray(_target - pos(p));
+    int  diff   = angle(guide) - angle(orient);
+    Ray2 push   = {angle(orient) + imin(MAX_CORRECTION, diff * 2), _thrust};
+    return vec(push);
+  }
+private:
+  Vec2 _target;
+  int _thrust;
+};
+
+// SmartAction uses drag to slow down when approaching, tries to compensate its
+// orientation and understand maximum rotation speed of the vehicle. This model
+// is only a few lines but can be used to simulate basic bots.
+template<int MAX_THRUST, int MAX_ANGSPD,
+         typename ThrustModel,
+         typename DragModel>
+struct SmartAction
+  : private ThrustModel, DragModel // Empty member optimisation
+{
+  SmartAction(const Vec2& target, int radius,
+              const ThrustModel& tm = ThrustModel(),
+              const DragModel& dm = DragModel())
+    : ThrustModel(tm), DragModel(dm), _target(target), _radius(radius) { }
+  Vec2 operator() (const Particle& p) const {
+    // int dtsq = distsq(pos(p), _target);
+    // Particle stop = until(p, CoastingAction<ThrustModel, DragModel>(),
+    //                       [](const Particle& p){ return magsq(spd(p)) < MAX_THRUST; });
+    // int dssq = distsq(pos(p), pos(stop));
+    return norm(_target - pos(p), _thrust);
+  }
+private:
+  Vec2 _target;
+  int _radius;
+  int _thrust;
+  int _rotspd;
+};
+
+// Physics are modeled with a ThrustModel and a DragModel.
+template<typename ThrustModel, typename DragModel>
+struct Physics : private ThrustModel, DragModel {
+  Physics(const ThrustModel& tm = ThrustModel(),
+          const DragModel& dm = DragModel())
+    : ThrustModel(tm), DragModel(dm) { }
+  const ThrustModel& thrustModel() const { return *this; }
+  const DragModel& dragModel() const { return *this; }
+};
+
+// `reaction`, `iterate_reaction` and `until_reaction` project actions on
+// particles to compute the future of a particle based on its
+// known present and a phyical model.
+template<typename Action, typename ThrustModel, typename DragModel>
+inline Particle reaction(const Particle& p, const Action& a,
+                          const Physics<ThrustModel, DragModel>& phy) {
+  return phy.thrustModel()(p, a(p) + phy.dragModel()(p));
+}
+
+template<typename Action, typename ThrustModel, typename DragModel>
+inline Particle iterate_reaction(unsigned times, Particle p, const Action& a,
+                                 const Physics<ThrustModel, DragModel>& phy) {
+  for (unsigned i = 0; i < times; ++i) { p = reaction(p, a, phy); }
+  return p;
+}
+
+template<typename Action, typename ThrustModel, typename DragModel, typename Predicate>
+inline Particle until_reaction(Particle p, const Action& a, const Predicate& t,
+                               const Physics<ThrustModel, DragModel>& phy) {
+  while (!t(p)) { p = reaction(p, a, phy); }
+  return p;
 }
 
 // Collision Detection algorithm. Returns the distance of collision, an a
-// posteriori estimate of the closest approach between the 2 particles (squared)
+// posteriori estimate of the closest approach between 2 particles (squared)
 // and the time to collision. When closest approach <= distance of collision,
 // collision has occured.
 //
 // The estimation stops after max_iter, which is 100 by default, or when one of
 // the particle gets out of the bounding box.
 //
-// The estimation is based on the ThrustGradiant associated with both
-// particles.
+// The estimation is based on the movement Model associated with both
+// particles. At each turn, the model is updated with the particles' positions,
+// and it queries the thrust for each of the particles.
 //
-template<typename TG1, typename TG2>
+template<typename ActionA, typename ActionB, typename Physics>
 inline std::tuple<int, int, int>
-collide_sq(Particle x0, Particle y0, const TG1& tx, const TG2& ty,
-            int max_iter = 100, const Box2& bb = {{-10000,-10000}, {10000, 10000}}) {
-  int sqrad = sq(rad(x0)) + sq(rad(y0));
-  int best_approach = distsq(pos(x0), pos(y0));
+collide_two(Particle a0, Particle b0, const ActionA& ma, const ActionB& mb,
+            const Physics& phy, int max_iter = 100,
+            const Box2& bb = {{-10000,-10000}, {10000, 10000}}) {
+  int sqrad = sq(rad(a0)) + sq(rad(b0));
+  int best_approach = distsq(pos(a0), pos(b0));
   if (best_approach <= sqrad)
     { return std::make_tuple(sqrad, best_approach, 0); }
   int i = 0;
   for (; i < max_iter; ++i) {
-    Particle x1 = free_move(x0, at(tx, i));
-    Particle y1 = free_move(y0, at(ty, i));
-    if (!within(bb, pos(x1)) || !within(bb, pos(y1))) break;
-    int approach = collide_int_sq(pos(x0), pos(y0), pos(x1), pos(y1), sqrad);
+    Particle a1 = reaction(a0, ma, phy);
+    Particle b1 = reaction(b0, mb, phy);
+    if (!within(bb, pos(a1)) || !within(bb, pos(b1))) break;
+    int approach = linear_collide(pos(a0), pos(b0), pos(a1), pos(b1), sqrad);
     if (approach <= sqrad)
       { return std::make_tuple(sqrad, approach, i); }
     if (approach < best_approach) { best_approach = approach; }
-    x0 = x1; y0 = y1;
+    a0 = a1; b0 = b1;
   }
   return std::make_tuple(sqrad, best_approach, i);
 }
@@ -557,7 +670,7 @@ constexpr const int MAP_WIDTH        = 16000;
 constexpr const int MAP_HEIGHT       = 9000;
 constexpr const int MAP_SEMI_WIDTH   = MAP_WIDTH / 2;
 constexpr const int MAP_SEMI_HEIGHT  = MAP_HEIGHT / 2;
-constexpr const int POD_MAX_ROTATION = 18; // rotation speed in degree
+constexpr const int MAX_POD_ROTATION = 18; // rotation speed in degree
 const char BOOST[]                   = "BOOST";
 const char SHIELD[]                  = "SHIELD";
 
@@ -576,12 +689,6 @@ struct State {
     Ray2     myCpRay;
 };
 
-inline Vec2 drag(const Vec2& spd) {
-  // Defines the drag model for a vehicle, according to its MAX_THRUST,
-  // MAX_SPEED, such that it compensates vehicle max thrust fully at max speed.
-  return norm(-spd, (magsq(spd) * MAX_THRUST) / sq(MAX_SPEED));
-}
-
 inline State readState() {
   int x;
   int y;
@@ -593,8 +700,8 @@ inline State readState() {
   int opponentX;
   int opponentY;
   cin >> opponentX >> opponentY; cin.ignore();
-  return State{Particle{to_centered({x, y}), Vec2{0, 0}, POD_RADIUS, POD_MASS},
-               Particle{to_centered({opponentY, opponentY}), Vec2{0, 0}, POD_RADIUS, POD_MASS},
+  return State{Particle{to_centered({x, y}), {0, 0}, {0, 0}, POD_RADIUS, POD_MASS},
+               Particle{to_centered({opponentY, opponentY}), {0, 0}, {0, 0}, POD_RADIUS, POD_MASS},
                to_centered({nextCheckpointX, nextCheckpointY}),
                Ray2{nextCheckpointAngle, nextCheckpointDist}};
 }
@@ -602,6 +709,8 @@ inline State readState() {
 inline void updateState(State& curr, const State& prev) {
   spd(curr.myPod) = pos(curr.myPod) - pos(prev.myPod);
   spd(curr.thPod) = pos(curr.thPod) - pos(prev.thPod);
+  acc(curr.myPod) = spd(curr.myPod) - spd(prev.myPod);
+  acc(curr.thPod) = spd(curr.thPod) - spd(prev.thPod);
 }
 
 typedef vector<tuple<Vec2, bool>> CheckPoints;
@@ -609,13 +718,11 @@ typedef vector<tuple<Vec2, bool>> CheckPoints;
 typedef Ring<State, 3> History;
 
 inline void thrust(int x, int y, int t) {
-    if (t > 100) t = 100;
-    if (t < 0) t = 0;
-    cout << x << " " << y << " " << t << endl;
+  cout << x << " " << y << " " << imin(t, MAX_THRUST) << endl;
 }
 inline void thrust(const Vec2& p, int t) {
   Vec2 l = to_local(p);
-  thrust(x(l), y(l), t);
+  thrust(x(l), y(l), imin(t, MAX_THRUST));
 }
 
 inline void boost(int x, int y) {
@@ -632,27 +739,24 @@ inline void boost(const Vec2& p) {
 int main()
 {
   bool boost_used = false;
-  History hist(State{Particle{{0, 0}, {0, 0}, POD_RADIUS, POD_MASS},
-                     Particle{{0, 0}, {0, 0}, POD_RADIUS, POD_MASS},
+  History hist(State{Particle{{0, 0}, {0, 0}, {0, 0}, POD_RADIUS, POD_MASS},
+                     Particle{{0, 0}, {0, 0}, {0, 0}, POD_RADIUS, POD_MASS},
                      {0, 0}, {0, 0}});
   auto curr = anchor<0>(hist);
   auto prev = anchor<1>(hist);
   *curr = readState();
-  Vec2 aim{MAP_SEMI_HEIGHT, MAP_SEMI_HEIGHT};
-  thrust(aim, 100);
+  ImpTargetAction<MAX_POD_ROTATION> agent(curr->myCpPos, MAX_THRUST);
+  thrust(pos(curr->myPod) + agent(curr->myPod) * 4, mag(agent(curr->myPod)) + 2);
   // game loop
   while (1) {
     hist.rotate();
     *curr = readState();
     updateState(*curr, *prev);
+    agent = ImpTargetAction<MAX_POD_ROTATION>(curr->myCpPos, MAX_THRUST);
+    thrust(pos(curr->myPod) + agent(curr->myPod) * 4, mag(agent(curr->myPod)) + 2);
     cerr << "Last pos " << pos(prev->myPod) << " Curr pos " << pos(curr->myPod) << endl;
     cerr << "Speed " << spd(curr->myPod) << " (" << mag(spd(curr->myPod)) << ")" << endl;
-    Vec2 pred_speed = spd(prev->myPod) + norm(spd(prev->myPod), 100) + drag(spd(prev->myPod));
-    cerr << "(Predicated Speed " << pred_speed << " (" << mag(pred_speed) << "))" << endl;
-    cerr << "Accel " << spd(curr->myPod) - spd(prev->myPod) << " (" << mag(spd(curr->myPod) - spd(prev->myPod)) << ")" << endl;
+    cerr << "Accel " << acc(curr->myPod) << " (" << mag(acc(curr->myPod)) << ")" << endl;
     cerr << "Rotated " << angle(curr->myCpRay) - angle(prev->myCpRay) << endl;
-    if ((x(aim) > 0 && x(pos(curr->myPod)) > x(aim))
-        || (x(aim) < 0 && x(pos(curr->myPod)) < x(aim))) aim = -aim;
-    thrust(aim, 100);
   }
 }

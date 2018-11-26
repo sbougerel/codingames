@@ -142,8 +142,8 @@ BOOST_AUTO_TEST_CASE(test_free_move) {
   // Make 2 particles at the edge of the board, facing each other
   Particle x0 = {{-10000, 0}, {100, 0}, {0, 0}, 500, 1};
   // The second implementation is actually less precise.
-  BOOST_CHECK_LT(iabs(x(pos(linear_motion(x0, {-1, 0}, 100)))
-                      - x(pos(iterate(100, x0, ConstantAction<RealisticThrustModel,VaccumDragModel>({-1, 0}))))),
+  BOOST_CHECK_LT(iabs(x(pos(reaction(x0, {-1, 0}, 100)))
+                      - x(pos(iterate_reaction(100, x0, ConstantAction({-1, 0}), Physics<RealisticThrustModel, VaccumDragModel>())))),
                  100);
 }
 
@@ -172,25 +172,28 @@ BOOST_AUTO_TEST_CASE(test_collide_int) {
                     100000000);
 }
 
-BOOST_AUTO_TEST_CASE(test_collide_sq) {
+BOOST_AUTO_TEST_CASE(test_collide_two) {
   // Make 2 particles at the edge of the board, facing each other
   Particle x0 = {{-10000, 0}, {100, 0}, {0, 0}, 500, 1};
   Particle x1 = {{10000, 0}, {-100, 0}, {0, 0}, 500, 1};
+  Physics<InstantThrustModel, VaccumDragModel> model1;
+  Physics<RealisticThrustModel, VaccumDragModel> model2;
   // In vaccum, without acceleration, they should collide
-  typedef CoastingAction<InstantThrustModel, VaccumDragModel> coasting;
-  BOOST_CHECK_EQUAL(std::get<1>(collide_two(x0, x1, coasting(), coasting())),
+  BOOST_CHECK_EQUAL(std::get<1>(collide_two(x0, x1, CoastingAction(), CoastingAction(), model1)),
                     sq(500) + sq(500));
   // Now with a constant acceleration, opposite to the speed, they get close but
   // do not touch. Compare with the similarly imprecise version.
-  typedef ConstantAction<RealisticThrustModel, VaccumDragModel> constant;
-  BOOST_CHECK_EQUAL(std::get<1>(collide_two(x0, x1, constant({-1, 0}), constant({1, 0}))),
-                    distsq(pos(linear_motion(x0, {-1, 0}, 100)),
-                           pos(linear_motion(x1, {1, 0}, 100))));
+  BOOST_CHECK_EQUAL(std::get<1>(collide_two(x0, x1, ConstantAction({-10, 0}), ConstantAction({10, 0}), model2, 10)),
+                    distsq(pos(reaction(x0, {-10, 0}, 10)),
+                           pos(reaction(x1, {10, 0}, 10))));
   // Now aiming for a collision at a lower point (still moving into each others)
-  typedef TargetAction<InstantThrustModel, VaccumDragModel> targeting;
-  BOOST_CHECK_EQUAL(std::get<1>(collide_two(x0, x1, targeting({0, 2000}, 1), targeting({0, 2000}, 1))),
+  BOOST_CHECK_EQUAL(std::get<1>(collide_two(x0, x1, TargetAction({0, 2000}, 10), TargetAction({0, 2000}, 10), model1)),
                     sq(500) + sq(500));
   // Now aiming for avoidance
-  BOOST_CHECK_EQUAL(std::get<1>(collide_two(x0, x1, targeting({0, -2000}, 1), targeting({0, 2000}, 1))),
-                    sq(500) + sq(500));
+  BOOST_CHECK_NE(std::get<1>(collide_two(x0, x1, TargetAction({0, -2000}, 10), TargetAction({0, 2000}, 10), model1)),
+                 sq(500) + sq(500));
+  // Now reaching the final position due to exessive drag
+  Physics<RealisticThrustModel, BasicDragModel<20, 300>> model3;
+  BOOST_CHECK_NE(std::get<1>(collide_two(x0, x1, TargetAction({0, -2000}, 20), TargetAction({0, 2000}, 20), model3)),
+                 sq(500) + sq(500));
 }
