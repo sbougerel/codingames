@@ -432,7 +432,7 @@ struct BasicDragModel
 // break distance under drag in any phyical model.
 struct CoastingAction
 {
-  Vec2 operator() (const Particle&) const { return {0, 0}; }
+  Ray2 operator() (const Particle& p) const { return {angle(ray(spd(p))), 0}; }
 };
 
 // ConstantAction just makes the particle accelerate with a constant thrust
@@ -440,7 +440,7 @@ struct CoastingAction
 struct ConstantAction
 {
   ConstantAction(const Vec2& thrust) : _thrust(thrust) { }
-  Vec2 operator() (const Particle&) const { return _thrust; }
+  Ray2 operator() (const Particle&) const { return ray(_thrust); }
 private:
   Vec2 _thrust;
 };
@@ -452,8 +452,8 @@ struct TargetAction
 {
   TargetAction(const Vec2& target, int thrust)
     : _target(target), _thrust(thrust) { }
-  Vec2 operator() (const Particle& p) const {
-    return norm(_target - pos(p), _thrust);
+  Ray2 operator() (const Particle& p) const {
+    return {angle(ray(_target - pos(p))), _thrust};
   }
 private:
   Vec2 _target;
@@ -468,12 +468,16 @@ struct ImpTargetAction
 {
   ImpTargetAction(const Vec2& target, int thrust)
     : _target(target), _thrust(thrust) { }
-  Vec2 operator() (const Particle& p) const {
+  Ray2 operator() (const Particle& p) const {
+    if (magsq(spd(p)) < 100)
+      return TargetAction(_target, _thrust)(p);
     Ray2 orient = ray(spd(p));
-    Ray2 guide  = ray(_target - pos(p));
-    int  diff   = angle(guide) - angle(orient);
-    Ray2 push   = {angle(orient) + imin(MAX_CORRECTION, diff * 2), _thrust};
-    return vec(push);
+    Ray2 base   = ray(_target - pos(p));
+    int  diff   = angle(base) - angle(orient);
+    if (abs(diff) > 100)
+      return TargetAction(_target, _thrust)(p);
+    Ray2 push   = {angle(base) + imin(isgn(diff, MAX_CORRECTION), diff), _thrust};
+    return push;
   }
 private:
   Vec2 _target;
@@ -523,7 +527,7 @@ struct Physics : private ThrustModel, DragModel {
 template<typename Action, typename ThrustModel, typename DragModel>
 inline Particle reaction(const Particle& p, const Action& a,
                           const Physics<ThrustModel, DragModel>& phy) {
-  return phy.thrustModel()(p, a(p) + phy.dragModel()(p));
+  return phy.thrustModel()(p, vec(a(p)) + phy.dragModel()(p));
 }
 
 template<typename Action, typename ThrustModel, typename DragModel>
