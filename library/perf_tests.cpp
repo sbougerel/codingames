@@ -41,17 +41,6 @@ BOOST_AUTO_TEST_CASE(test_abs){
   // slow since sgn(), rectify(), etc. all use the same technique.
   std::vector<int> shuffle(random_ints<N>());
 
-  std::chrono::duration<double> elapsed_std;
-  {
-    int j = 0;
-    auto start = std::chrono::high_resolution_clock::now();
-    for (int i : shuffle) { j += std::abs(i); }
-    auto end = std::chrono::high_resolution_clock::now();
-    elapsed_std = end-start;
-    std::cout << "std::abs() elapsed time for " << N << " iterations:\t"
-              << elapsed_std.count() << "s (" << j << ")" << std::endl;
-  }
-
   std::chrono::duration<double> elapsed_my;
   {
     int j = 0;
@@ -63,7 +52,52 @@ BOOST_AUTO_TEST_CASE(test_abs){
               << elapsed_my.count() << "s (" << j << ")" << std::endl;
   }
 
-  BOOST_CHECK_GT(elapsed_std.count() * 1.5, elapsed_my.count());
+  std::chrono::duration<double> elapsed_std;
+  {
+    int j = 0;
+    auto start = std::chrono::high_resolution_clock::now();
+    for (int i : shuffle) { j += std::abs(i); }
+    auto end = std::chrono::high_resolution_clock::now();
+    elapsed_std = end-start;
+    std::cout << "std::abs() elapsed time for " << N << " iterations:\t"
+              << elapsed_std.count() << "s (" << j << ")" << std::endl;
+  }
+
+  BOOST_CHECK_GT(elapsed_std.count(), elapsed_my.count());
+}
+
+inline int imin_naive(int a, int b) { return (a < b)? a : b; }
+
+BOOST_AUTO_TEST_CASE(test_min){
+  constexpr const int N = 10000000;
+
+  // std::abs() is actually really fast. Here we just test my version is not too
+  // slow since sgn(), rectify(), etc. all use the same technique.
+  std::vector<int> shuffle(random_ints<N>());
+
+  std::chrono::duration<double> elapsed_naive;
+  {
+    int j = 0;
+    auto start = std::chrono::high_resolution_clock::now();
+    for (int i = 1; i < N; ++i) { j += imin_naive(i, i - 1); }
+    auto end = std::chrono::high_resolution_clock::now();
+    elapsed_naive = end-start;
+    std::cout << "imin_naive() elapsed time for " << N << " iterations:\t"
+              << elapsed_naive.count() << "s (" << j << ")" << std::endl;
+  }
+
+  std::chrono::duration<double> elapsed_my;
+  {
+    int j = 0;
+    auto start = std::chrono::high_resolution_clock::now();
+    for (int i = 1; i < N; ++i) { j += imin(i, i - 1); }
+    auto end = std::chrono::high_resolution_clock::now();
+    elapsed_my = end-start;
+    std::cout << "imin() elapsed time for " << N << " iterations:\t"
+              << elapsed_my.count() << "s (" << j << ")" << std::endl;
+  }
+
+  BOOST_CHECK_GT(elapsed_naive.count(), elapsed_my.count());
 }
 
 BOOST_AUTO_TEST_CASE(test_sine){

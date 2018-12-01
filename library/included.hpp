@@ -113,10 +113,12 @@ constexpr inline Tp sq(Tp x) { return x * x; }
 inline int ihyp(const int adjacent, const int opposite)
 {
   int S = sq(adjacent) + sq(opposite);
-  int x = iabs(adjacent) + iabs(opposite);
+  int a = iabs(adjacent), o = iabs(opposite);
+  int x = a + o;
   x = (sq(x) + S) / (2 * x + 1);
   x = (sq(x) + S) / (2 * x + 1);
-  return (sq(x) + S) / (2 * x + 1);
+  x = (sq(x) + S) / (2 * x + 1);
+  return imax(imax(x, a), o);
 }
 
 // Return the sine value for an `angle` in degree, multipled by arbitrary
@@ -149,30 +151,45 @@ inline int icos(int angle, int scale) {
 
 // Return an angle in degree for the value of the adjacent length `x`, the
 // opposite length`y` and their hypotenuse (when already precomputed), with less
-// than 3% error (10 degrees over 360 degrees).
+// than 2 degree or error.
 //
-// Uses the lagrange approximation that can be found everywhere on Internet,
-// only adapted to integers and degrees. The input range is only defined between
-// [0, 1], which means we need to use the right terms for x vs y:
+// Uses a rational polynomial approximation that can be found everywhere on
+// Internet, only adapted to integers and degrees. The input range is only
+// defined between [0, 1].
 //
-//     (-0.698131700 * x * x -0.872664625) * x + 1.570796325;
+//     acos(x) ≈ 90 + (ax + bx³) / (1 + cx² + dx⁴)
 //
-// if hypot is 0, the result is undefined.
+// with:
+//     a = -53.807358428
+//     b =  52.814341583
+//     c = -1.284590624
+//     d =  0.295624145
+//
+// We slightly modify the function above as it returns with [-179, 179] due to
+// integer approximations. We instead propose to use:
+//
+//     acos(x) ≈ 90 + (ax + bx³) / (0.999999f + cx² + dx⁴)
+//
+// Note that if `hypot` is 0, the result is undefined. `hypot` is assumed to be
+// properly computed, and in particular, always greater than `x`.
 inline int iacos3(int x, int y, int hypot) {
-  constexpr const float A = -0.698131700f;
-  constexpr const float B = -0.872664625f;
-  constexpr const float C = A + B;
-  constexpr const float D = 180.f / M_PI;
+  constexpr const float A = -53.807358428;
+  constexpr const float B = 52.814341583;
+  constexpr const float C = -1.284590624;
+  constexpr const float D = 0.295624145;
   float f = float(x) / float(hypot);
-  f = (A * f * f + B) * f - C;
-  int r = (D * f);
+  float f2 = f * f;
+  float q = f * (A + B * f2);
+  float d = 0.999999f + f2 * (C + D * f2);
+  int r = 90 + int(q / d);
   return isgn(y, r);
 }
 
 // Return an angle in degree for the value of the adjacent length `x`, the
-// opposite length`y` with less than 3% error.
+// opposite length`y` with less than 0.5% error.
 //
 inline int iacos2(int x, int y) {
+  // ihyp(x, y) ~ sometimes smaller than imax(x).
   return iacos3(x, y, ihyp(x, y));
 }
 
@@ -226,20 +243,7 @@ constexpr inline int magsq(const Vec2& a)
 inline int distsq(const Vec2& a, const Vec2& b)
 { return magsq(a - b); }
 
-// Square root can't be computed on integers, but there's a fast convergent
-// approximation with few iterations only: Newton's method.
-//
-//   - start at Manhattan magnitude (a.k.a taxicab metric)
-//   - we know values are necessarily positive, so add +1 to avoid div by 0
-//   - do 3 iterations of Newton's method
-inline int mag(const Vec2& a)
-{
-  int S = magsq(a);
-  int m = iabs(x(a)) + iabs(y(a));
-  m = (sq(m) + S) / (2 * m + 1);
-  m = (sq(m) + S) / (2 * m + 1);
-  return (sq(m) + S) / (2 * m + 1);
-}
+inline int mag(const Vec2& a) { return ihyp(x(a), y(a)); }
 
 // Similar to mag, normalize cares to:
 //
@@ -321,7 +325,7 @@ inline Ray2 norm(const Ray2& a) { return {angle(a) % 360, rad(a)}; }
 
 inline Vec2 vec(const Ray2& a) { return Vec2{ icos(angle(a), rad(a)), isin(angle(a), rad(a)) }; }
 inline Ray2 ray(const Vec2& a) {
-  int r = mag(a);
+  int r = imax(mag(a), x(a));
   return (r == 0) ? Ray2{0, 0} : Ray2{iacos3(x(a), y(a), r), r};
 }
 
@@ -330,8 +334,8 @@ inline Ray2 ray(const Vec2& a) {
 struct Particle {
   Vec2 pos;
   Vec2 spd;
-  Vec2 acc;
-  int rad;
+  int  orient;
+  int  rad;
   float mass;
 };
 
@@ -342,8 +346,8 @@ constexpr inline const Vec2& pos(const Particle& a) { return a.pos; }
 constexpr inline Vec2& pos(Particle& a) { return a.pos; }
 constexpr inline const Vec2& spd(const Particle& a) { return a.spd; }
 constexpr inline Vec2& spd(Particle& a) { return a.spd; }
-constexpr inline const Vec2& acc(const Particle& a) { return a.acc; }
-constexpr inline Vec2& acc(Particle& a) { return a.acc; }
+constexpr inline int orient(const Particle& a) { return a.orient; }
+constexpr inline int& orient(Particle& a) { return a.orient; }
 constexpr inline int rad(const Particle& a) { return a.rad; }
 constexpr inline int& rad(Particle& a) { return a.rad; }
 constexpr inline float mass(const Particle& a) { return a.mass; }
@@ -359,26 +363,26 @@ constexpr inline bool operator!=(const Particle& a, const Particle& b)
 { return !(a == b); }
 
 inline std::ostream& operator<<(std::ostream& o, const Particle& a) {
-  o << "Particle({" << pos(a) << ", " << spd(a) << ", " << acc(a) << ", " << rad(a) << ", " << mass(a) << "})";
+  o << "Particle({" << pos(a) << ", " << spd(a) << ", " << orient(a) << ", " << rad(a) << ", " << mass(a) << "})";
   return o;
 }
 
 inline Particle linear_motion(const Particle& p) {
-  return {spd(p) + pos(p), spd(p), {0, 0}, rad(p), mass(p)};
+  return {spd(p) + pos(p), spd(p), orient(p), rad(p), mass(p)};
 }
 
 inline Particle reaction(const Particle& p, const Vec2& t) {
   Vec2 a_ = t / mass(p);
   Vec2 p_ = a_ / 2 + spd(p) + pos(p);
   Vec2 s_ = a_+ spd(p);
-  return {p_, s_, a_, rad(p), mass(p)};
+  return {p_, s_, orient(p), rad(p), mass(p)};
 }
 
 inline Particle reaction(const Particle& p, const Vec2& t, int iterations) {
   Vec2 a_ = t / mass(p);
   Vec2 p_ = (a_ * sq(iterations)) / 2 + spd(p) * iterations + pos(p);
   Vec2 s_ = a_ * iterations + spd(p);
-  return {p_, s_, a_, rad(p), mass(p)};
+  return {p_, s_, orient(p), rad(p), mass(p)};
 }
 
 // ThrustModels functors apply a force on a present particle, computing its
@@ -392,7 +396,7 @@ struct InstantThrustModel
   Particle operator() (const Particle& p, const Vec2& t) const {
     Vec2 s_ = t + spd(p);
     Vec2 p_ = s_ + pos(p);
-    return {p_, s_, t, rad(p), mass(p)};
+    return {p_, s_, orient(p), rad(p), mass(p)};
   }
 };
 
@@ -432,17 +436,17 @@ struct BasicDragModel
 // break distance under drag in any phyical model.
 struct CoastingAction
 {
-  Ray2 operator() (const Particle& p) const { return {angle(ray(spd(p))), 0}; }
+  Ray2 operator() (const Particle& p) const { return {orient(p), 0}; }
 };
 
 // ConstantAction just makes the particle accelerate with a constant thrust
 // applied in the same direction. Good for tests.
 struct ConstantAction
 {
-  ConstantAction(const Vec2& thrust) : _thrust(thrust) { }
-  Ray2 operator() (const Particle&) const { return ray(_thrust); }
+  ConstantAction(const Vec2& thrust) : _thrust(ray(thrust)) { }
+  Ray2 operator() (const Particle&) const { return _thrust; }
 private:
-  Vec2 _thrust;
+  Ray2 _thrust;
 };
 
 // TargetAction just makes the particle move toward a target with a constant
@@ -484,33 +488,6 @@ private:
   int _thrust;
 };
 
-// SmartAction uses drag to slow down when approaching, tries to compensate its
-// orientation and understand maximum rotation speed of the vehicle. This model
-// is only a few lines but can be used to simulate basic bots.
-template<int MAX_THRUST, int MAX_ANGSPD,
-         typename ThrustModel,
-         typename DragModel>
-struct SmartAction
-  : private ThrustModel, DragModel // Empty member optimisation
-{
-  SmartAction(const Vec2& target, int radius,
-              const ThrustModel& tm = ThrustModel(),
-              const DragModel& dm = DragModel())
-    : ThrustModel(tm), DragModel(dm), _target(target), _radius(radius) { }
-  Vec2 operator() (const Particle& p) const {
-    // int dtsq = distsq(pos(p), _target);
-    // Particle stop = until(p, CoastingAction<ThrustModel, DragModel>(),
-    //                       [](const Particle& p){ return magsq(spd(p)) < MAX_THRUST; });
-    // int dssq = distsq(pos(p), pos(stop));
-    return norm(_target - pos(p), _thrust);
-  }
-private:
-  Vec2 _target;
-  int _radius;
-  int _thrust;
-  int _rotspd;
-};
-
 // Physics are modeled with a ThrustModel and a DragModel.
 template<typename ThrustModel, typename DragModel>
 struct Physics : private ThrustModel, DragModel {
@@ -533,7 +510,9 @@ inline Particle reaction(const Particle& p, const Action& a,
 template<typename Action, typename ThrustModel, typename DragModel>
 inline Particle iterate_reaction(unsigned times, Particle p, const Action& a,
                                  const Physics<ThrustModel, DragModel>& phy) {
-  for (unsigned i = 0; i < times; ++i) { p = reaction(p, a, phy); }
+  for (unsigned i = 0; i < times; ++i) {
+    p = reaction(p, a, phy);
+  }
   return p;
 }
 

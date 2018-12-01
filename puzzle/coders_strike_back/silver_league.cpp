@@ -330,8 +330,8 @@ inline Ray2 ray(const Vec2& a) {
 struct Particle {
   Vec2 pos;
   Vec2 spd;
-  Vec2 acc;
-  int rad;
+  int  orient;
+  int  rad;
   float mass;
 };
 
@@ -342,8 +342,8 @@ constexpr inline const Vec2& pos(const Particle& a) { return a.pos; }
 constexpr inline Vec2& pos(Particle& a) { return a.pos; }
 constexpr inline const Vec2& spd(const Particle& a) { return a.spd; }
 constexpr inline Vec2& spd(Particle& a) { return a.spd; }
-constexpr inline const Vec2& acc(const Particle& a) { return a.acc; }
-constexpr inline Vec2& acc(Particle& a) { return a.acc; }
+constexpr inline int orient(const Particle& a) { return a.orient; }
+constexpr inline int& orient(Particle& a) { return a.orient; }
 constexpr inline int rad(const Particle& a) { return a.rad; }
 constexpr inline int& rad(Particle& a) { return a.rad; }
 constexpr inline float mass(const Particle& a) { return a.mass; }
@@ -359,26 +359,26 @@ constexpr inline bool operator!=(const Particle& a, const Particle& b)
 { return !(a == b); }
 
 inline std::ostream& operator<<(std::ostream& o, const Particle& a) {
-  o << "Particle({" << pos(a) << ", " << spd(a) << ", " << acc(a) << ", " << rad(a) << ", " << mass(a) << "})";
+  o << "Particle({" << pos(a) << ", " << spd(a) << ", " << orient(a) << ", " << rad(a) << ", " << mass(a) << "})";
   return o;
 }
 
 inline Particle linear_motion(const Particle& p) {
-  return {spd(p) + pos(p), spd(p), {0, 0}, rad(p), mass(p)};
+  return {spd(p) + pos(p), spd(p), orient(p), rad(p), mass(p)};
 }
 
 inline Particle reaction(const Particle& p, const Vec2& t) {
   Vec2 a_ = t / mass(p);
   Vec2 p_ = a_ / 2 + spd(p) + pos(p);
   Vec2 s_ = a_+ spd(p);
-  return {p_, s_, a_, rad(p), mass(p)};
+  return {p_, s_, orient(p), rad(p), mass(p)};
 }
 
 inline Particle reaction(const Particle& p, const Vec2& t, int iterations) {
   Vec2 a_ = t / mass(p);
   Vec2 p_ = (a_ * sq(iterations)) / 2 + spd(p) * iterations + pos(p);
   Vec2 s_ = a_ * iterations + spd(p);
-  return {p_, s_, a_, rad(p), mass(p)};
+  return {p_, s_, orient(p), rad(p), mass(p)};
 }
 
 // ThrustModels functors apply a force on a present particle, computing its
@@ -392,7 +392,7 @@ struct InstantThrustModel
   Particle operator() (const Particle& p, const Vec2& t) const {
     Vec2 s_ = t + spd(p);
     Vec2 p_ = s_ + pos(p);
-    return {p_, s_, t, rad(p), mass(p)};
+    return {p_, s_, orient(p), rad(p), mass(p)};
   }
 };
 
@@ -474,7 +474,6 @@ struct ImpTargetAction
     Ray2 orient = ray(spd(p));
     Ray2 base   = ray(_target - pos(p));
     int  diff   = angle(base) - angle(orient);
-    std::cerr << "Diff " << diff << std::endl;
     if (abs(diff) > 100)
       return TargetAction(_target, _thrust)(p);
     Ray2 push   = {angle(base) + imin(isgn(diff, MAX_CORRECTION), diff), _thrust};
@@ -483,33 +482,6 @@ struct ImpTargetAction
 private:
   Vec2 _target;
   int _thrust;
-};
-
-// SmartAction uses drag to slow down when approaching, tries to compensate its
-// orientation and understand maximum rotation speed of the vehicle. This model
-// is only a few lines but can be used to simulate basic bots.
-template<int MAX_THRUST, int MAX_ANGSPD,
-         typename ThrustModel,
-         typename DragModel>
-struct SmartAction
-  : private ThrustModel, DragModel // Empty member optimisation
-{
-  SmartAction(const Vec2& target, int radius,
-              const ThrustModel& tm = ThrustModel(),
-              const DragModel& dm = DragModel())
-    : ThrustModel(tm), DragModel(dm), _target(target), _radius(radius) { }
-  Vec2 operator() (const Particle& p) const {
-    // int dtsq = distsq(pos(p), _target);
-    // Particle stop = until(p, CoastingAction<ThrustModel, DragModel>(),
-    //                       [](const Particle& p){ return magsq(spd(p)) < MAX_THRUST; });
-    // int dssq = distsq(pos(p), pos(stop));
-    return norm(_target - pos(p), _thrust);
-  }
-private:
-  Vec2 _target;
-  int _radius;
-  int _thrust;
-  int _rotspd;
 };
 
 // Physics are modeled with a ThrustModel and a DragModel.
@@ -705,8 +677,8 @@ inline State readState() {
   int opponentX;
   int opponentY;
   cin >> opponentX >> opponentY; cin.ignore();
-  return State{Particle{to_centered({x, y}), {0, 0}, {0, 0}, POD_RADIUS, POD_MASS},
-               Particle{to_centered({opponentY, opponentY}), {0, 0}, {0, 0}, POD_RADIUS, POD_MASS},
+  return State{Particle{to_centered({x, y}), {0, 0}, 0, POD_RADIUS, POD_MASS},
+               Particle{to_centered({opponentY, opponentY}), {0, 0}, 0, POD_RADIUS, POD_MASS},
                to_centered({nextCheckpointX, nextCheckpointY}),
                Ray2{nextCheckpointAngle, nextCheckpointDist}};
 }
@@ -714,8 +686,8 @@ inline State readState() {
 inline void updateState(State& curr, const State& prev) {
   spd(curr.myPod) = pos(curr.myPod) - pos(prev.myPod);
   spd(curr.thPod) = pos(curr.thPod) - pos(prev.thPod);
-  acc(curr.myPod) = spd(curr.myPod) - spd(prev.myPod);
-  acc(curr.thPod) = spd(curr.thPod) - spd(prev.thPod);
+  orient(curr.myPod) = angle(ray(curr.myCpPos - pos(curr.myPod))) + angle(curr.myCpRay);
+  cerr << "Orient " << orient(curr.myPod) << " angle " << angle(curr.myCpRay) << endl;
 }
 
 typedef vector<tuple<Vec2, bool>> CheckPoints;
@@ -744,8 +716,8 @@ inline void boost(const Vec2& p) {
 int main()
 {
   bool boost_used = false;
-  History hist(State{Particle{{0, 0}, {0, 0}, {0, 0}, POD_RADIUS, POD_MASS},
-                     Particle{{0, 0}, {0, 0}, {0, 0}, POD_RADIUS, POD_MASS},
+  History hist(State{Particle{{0, 0}, {0, 0}, 0, POD_RADIUS, POD_MASS},
+                     Particle{{0, 0}, {0, 0}, 0, POD_RADIUS, POD_MASS},
                      {0, 0}, {0, 0}});
   auto curr = anchor<0>(hist);
   auto prev = anchor<1>(hist);
@@ -761,7 +733,7 @@ int main()
     thrust(pos(curr->myPod) + vec({angle(push), 2000}), rad(push));
     cerr << "Last pos " << pos(prev->myPod) << " Curr pos " << pos(curr->myPod) << endl;
     cerr << "Speed " << spd(curr->myPod) << " (" << mag(spd(curr->myPod)) << ")" << endl;
-    cerr << "Accel " << acc(curr->myPod) << " (" << mag(acc(curr->myPod)) << ")" << endl;
+    cerr << "Accel " << spd(curr->myPod) - spd(prev->myPod) << " (" << mag(spd(curr->myPod) - spd(prev->myPod)) << ")" << endl;
     cerr << "Rotated " << angle(curr->myCpRay) - angle(prev->myCpRay) << endl;
   }
 }

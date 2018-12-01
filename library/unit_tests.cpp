@@ -8,32 +8,44 @@ BOOST_AUTO_TEST_CASE(test_iabs){
   BOOST_CHECK_EQUAL(iabs(0), 0);
   BOOST_CHECK_EQUAL(iabs(1), 1);
   BOOST_CHECK_EQUAL(iabs(-1), 1);
-  BOOST_CHECK_EQUAL(iabs(1l), 1l);
-  BOOST_CHECK_EQUAL(iabs(-1l), 1l);
+  BOOST_CHECK_EQUAL(iabs(1), 1);
+  BOOST_CHECK_EQUAL(iabs(-1), 1);
 }
 
 BOOST_AUTO_TEST_CASE(test_irel){
   BOOST_CHECK_EQUAL(irel(0), 0);
   BOOST_CHECK_EQUAL(irel(1), 1);
   BOOST_CHECK_EQUAL(irel(-1), 0);
-  BOOST_CHECK_EQUAL(irel(2l), 2l);
-  BOOST_CHECK_EQUAL(irel(-2l), 0l);
+  BOOST_CHECK_EQUAL(irel(2), 2);
+  BOOST_CHECK_EQUAL(irel(-2), 0);
 }
 
 BOOST_AUTO_TEST_CASE(test_amp){
   BOOST_CHECK_EQUAL(amp(0, 2), 2);
   BOOST_CHECK_EQUAL(amp(1, 2), 2);
   BOOST_CHECK_EQUAL(amp(-1, 2), 0);
-  BOOST_CHECK_EQUAL(amp(2l, 2l), 2l);
-  BOOST_CHECK_EQUAL(amp(-2l, 2l), 0l);
+  BOOST_CHECK_EQUAL(amp(2, 2), 2);
+  BOOST_CHECK_EQUAL(amp(-2, 2), 0);
 }
 
 BOOST_AUTO_TEST_CASE(test_namp){
   BOOST_CHECK_EQUAL(namp(0, 2), 0);
   BOOST_CHECK_EQUAL(namp(1, 2), 0);
   BOOST_CHECK_EQUAL(namp(-1, 2), 2);
-  BOOST_CHECK_EQUAL(namp(2l, 2l), 0l);
-  BOOST_CHECK_EQUAL(namp(-2l, 2l), 2l);
+  BOOST_CHECK_EQUAL(namp(2, 2), 0);
+  BOOST_CHECK_EQUAL(namp(-2, 2), 2);
+}
+
+BOOST_AUTO_TEST_CASE(test_isgn){
+  BOOST_CHECK_EQUAL(isgn(0, 0), 0);
+  BOOST_CHECK_EQUAL(isgn(0, 2), 2);
+  BOOST_CHECK_EQUAL(isgn(0, -2), -2);
+  BOOST_CHECK_EQUAL(isgn(1, 0), 0);
+  BOOST_CHECK_EQUAL(isgn(-1, 0), 0);
+  BOOST_CHECK_EQUAL(isgn(1, 2), 2);
+  BOOST_CHECK_EQUAL(isgn(-1, 2), -2);
+  BOOST_CHECK_EQUAL(isgn(2, -2), -2);
+  BOOST_CHECK_EQUAL(isgn(-2, -2), 2);
 }
 
 BOOST_AUTO_TEST_CASE(test_ihyp){
@@ -91,13 +103,13 @@ BOOST_AUTO_TEST_CASE(test_iacos2) {
   BOOST_CHECK_EQUAL(iacos2(-1000, 0), 180);
   BOOST_CHECK_EQUAL(iacos2(0, 1000), 90);
   BOOST_CHECK_EQUAL(iacos2(0, -1000), -90);
-  BOOST_CHECK_LT(iabs(iacos2(500, 500)  - (  45)), 6);
-  BOOST_CHECK_LT(iabs(iacos2(500, -500) - ( -45)), 6);
-  BOOST_CHECK_LT(iabs(iacos2(-500, 500) - ( 135)), 6);
-  BOOST_CHECK_LT(iabs(iacos3_from_stdmath(30, 10000))  - (  30), 10);
-  BOOST_CHECK_LT(iabs(iacos3_from_stdmath(60, 10000))  - (  60), 10);
-  BOOST_CHECK_LT(iabs(iacos3_from_stdmath(120, 10000)) - ( 120), 10);
-  BOOST_CHECK_LT(iabs(iacos3_from_stdmath(150, 10000)) - ( 150), 10);
+  BOOST_CHECK_LT(iabs(iacos2(500, 500)  - (  45)), 2);
+  BOOST_CHECK_LT(iabs(iacos2(500, -500) - ( -45)), 2);
+  BOOST_CHECK_LT(iabs(iacos2(-500, 500) - ( 135)), 2);
+  BOOST_CHECK_LT(iabs(iacos3_from_stdmath(30, 10000))  - (  30), 2);
+  BOOST_CHECK_LT(iabs(iacos3_from_stdmath(60, 10000))  - (  60), 2);
+  BOOST_CHECK_LT(iabs(iacos3_from_stdmath(120, 10000)) - ( 120), 2);
+  BOOST_CHECK_LT(iabs(iacos3_from_stdmath(150, 10000)) - ( 150), 2);
 }
 
 BOOST_AUTO_TEST_CASE(test_ring_anchor){
@@ -140,10 +152,11 @@ BOOST_AUTO_TEST_CASE(test_ray2_norm){
 
 BOOST_AUTO_TEST_CASE(test_free_move) {
   // Make 2 particles at the edge of the board, facing each other
-  Particle x0 = {{-10000, 0}, {100, 0}, {0, 0}, 500, 1};
+  Particle x0 = {{-10000, 0}, {100, 0}, 0, 500, 1};
+  Physics<RealisticThrustModel, VaccumDragModel> model;
   // The second implementation is actually less precise.
-  BOOST_CHECK_LT(iabs(x(pos(reaction(x0, {-1, 0}, 100)))
-                      - x(pos(iterate_reaction(100, x0, ConstantAction({-1, 0}), Physics<RealisticThrustModel, VaccumDragModel>())))),
+  BOOST_CHECK_LT(iabs(x(pos(reaction(x0, {0, 0}, 100)))
+                      - x(pos(iterate_reaction(100, x0, CoastingAction(), model)))),
                  100);
 }
 
@@ -174,8 +187,8 @@ BOOST_AUTO_TEST_CASE(test_collide_int) {
 
 BOOST_AUTO_TEST_CASE(test_collide_two) {
   // Make 2 particles at the edge of the board, facing each other
-  Particle x0 = {{-10000, 0}, {100, 0}, {0, 0}, 500, 1};
-  Particle x1 = {{10000, 0}, {-100, 0}, {0, 0}, 500, 1};
+  Particle x0 = {{-10000, 0}, {100, 0}, 0, 500, 1};
+  Particle x1 = {{10000, 0}, {-100, 0}, 0, 500, 1};
   Physics<InstantThrustModel, VaccumDragModel> model1;
   Physics<RealisticThrustModel, VaccumDragModel> model2;
   // In vaccum, without acceleration, they should collide
