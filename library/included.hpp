@@ -189,7 +189,6 @@ inline int iacos3(int x, int y, int hypot) {
 // opposite length`y` with less than 0.5% error.
 //
 inline int iacos2(int x, int y) {
-  // ihyp(x, y) ~ sometimes smaller than imax(x).
   return iacos3(x, y, ihyp(x, y));
 }
 
@@ -325,7 +324,7 @@ inline Ray2 norm(const Ray2& a) { return {angle(a) % 360, rad(a)}; }
 
 inline Vec2 vec(const Ray2& a) { return Vec2{ icos(angle(a), rad(a)), isin(angle(a), rad(a)) }; }
 inline Ray2 ray(const Vec2& a) {
-  int r = imax(mag(a), x(a));
+  int r = mag(a);
   return (r == 0) ? Ray2{0, 0} : Ray2{iacos3(x(a), y(a), r), r};
 }
 
@@ -464,28 +463,36 @@ private:
   int _thrust;
 };
 
-// ImpTargetAction acts like TargetAction but also tries to compensate its own
-// lateral motion to reach the target faster. This model is only a few lines but
-// can be used to simulate basic bots.
-template<int MAX_CORRECTION> // maximum correction angle
-struct ImpTargetAction
+// AdvTargetAction acts like TargetAction but also tries to compensate its own
+// lateral motion to reach the target in a straighter line. This model is only a
+// few lines but can be used to simulate advanced racing bots.
+template<int MAX_THRUST, int MAX_CORRECTION> // maximum correction angle
+struct AdvTargetAction
 {
-  ImpTargetAction(const Vec2& target, int thrust)
-    : _target(target), _thrust(thrust) { }
+  AdvTargetAction(const Vec2& target, int radius) : _target(target), _radius(radius) { }
   Ray2 operator() (const Particle& p) const {
+    constexpr const int MAX_COMP_ANGLE = 90;  // compensate when facing
+    constexpr const int ACCEL_ANGLE    = 100; // start accelerating
     if (magsq(spd(p)) < 100)
-      return TargetAction(_target, _thrust)(p);
-    Ray2 orient = ray(spd(p));
-    Ray2 base   = ray(_target - pos(p));
-    int  diff   = angle(base) - angle(orient);
-    if (abs(diff) > 100)
-      return TargetAction(_target, _thrust)(p);
-    Ray2 push   = {angle(base) + imin(isgn(diff, MAX_CORRECTION), diff), _thrust};
+      return TargetAction(_target, MAX_THRUST)(p);
+    Ray2 pro    = ray(spd(p));
+    if (magsq(spd(p) + pos(p) - _target) < sq(_radius)
+        && iabs(angle(pro) - orient(p)) < MAX_CORRECTION)
+      { return {angle(pro), MAX_THRUST}; }
+    Ray2 dir    = ray(_target - pos(p));
+    int  pro_d  = angle(dir) - angle(pro);
+    Ray2 push   = dir;
+    if (iabs(pro_d) < MAX_COMP_ANGLE)
+      { angle(push) = angle(dir) + isgn(pro_d, imin(iabs(pro_d), MAX_CORRECTION)); }
+    int  ori_d  = iabs(angle(push) - orient(p));
+    if (ori_d > ACCEL_ANGLE) { rad(push) = 0; }
+    else if (ori_d < MAX_CORRECTION * 2) { rad(push) = MAX_THRUST; }
+    else { rad(push) = isin(((ACCEL_ANGLE - ori_d) * 90) / (ACCEL_ANGLE - MAX_CORRECTION * 2), MAX_THRUST + 1); }
     return push;
   }
 private:
   Vec2 _target;
-  int _thrust;
+  int _radius;
 };
 
 // Physics are modeled with a ThrustModel and a DragModel.
@@ -501,25 +508,23 @@ struct Physics : private ThrustModel, DragModel {
 // `reaction`, `iterate_reaction` and `until_reaction` project actions on
 // particles to compute the future of a particle based on its
 // known present and a phyical model.
-template<typename Action, typename ThrustModel, typename DragModel>
-inline Particle reaction(const Particle& p, const Action& a,
-                          const Physics<ThrustModel, DragModel>& phy) {
-  return phy.thrustModel()(p, vec(a(p)) + phy.dragModel()(p));
+template<typename ThrustModel, typename DragModel>
+inline Particle reaction(const Particle& p, const Vec2& t,
+                         const Physics<ThrustModel, DragModel>& phy) {
+  return phy.thrustModel()(p, t + phy.dragModel()(p));
 }
 
 template<typename Action, typename ThrustModel, typename DragModel>
 inline Particle iterate_reaction(unsigned times, Particle p, const Action& a,
                                  const Physics<ThrustModel, DragModel>& phy) {
-  for (unsigned i = 0; i < times; ++i) {
-    p = reaction(p, a, phy);
-  }
+  for (unsigned i = 0; i < times; ++i) { p = reaction(p, vec(a(p)), phy); }
   return p;
 }
 
 template<typename Action, typename ThrustModel, typename DragModel, typename Predicate>
 inline Particle until_reaction(Particle p, const Action& a, const Predicate& t,
                                const Physics<ThrustModel, DragModel>& phy) {
-  while (!t(p)) { p = reaction(p, a, phy); }
+  while (!t(p)) { p = reaction(p, vec(a(p)), phy); }
   return p;
 }
 

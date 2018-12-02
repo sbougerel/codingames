@@ -113,10 +113,12 @@ constexpr inline Tp sq(Tp x) { return x * x; }
 inline int ihyp(const int adjacent, const int opposite)
 {
   int S = sq(adjacent) + sq(opposite);
-  int x = iabs(adjacent) + iabs(opposite);
+  int a = iabs(adjacent), o = iabs(opposite);
+  int x = a + o;
   x = (sq(x) + S) / (2 * x + 1);
   x = (sq(x) + S) / (2 * x + 1);
-  return (sq(x) + S) / (2 * x + 1);
+  x = (sq(x) + S) / (2 * x + 1);
+  return imax(imax(x, a), o);
 }
 
 // Return the sine value for an `angle` in degree, multipled by arbitrary
@@ -149,28 +151,42 @@ inline int icos(int angle, int scale) {
 
 // Return an angle in degree for the value of the adjacent length `x`, the
 // opposite length`y` and their hypotenuse (when already precomputed), with less
-// than 3% error (10 degrees over 360 degrees).
+// than 2 degree or error.
 //
-// Uses the lagrange approximation that can be found everywhere on Internet,
-// only adapted to integers and degrees. The input range is only defined between
-// [0, 1], which means we need to use the right terms for x vs y:
+// Uses a rational polynomial approximation that can be found everywhere on
+// Internet, only adapted to integers and degrees. The input range is only
+// defined between [0, 1].
 //
-//     (-0.698131700 * x * x -0.872664625) * x + 1.570796325;
+//     acos(x) ≈ 90 + (ax + bx³) / (1 + cx² + dx⁴)
 //
-// if hypot is 0, the result is undefined.
+// with:
+//     a = -53.807358428
+//     b =  52.814341583
+//     c = -1.284590624
+//     d =  0.295624145
+//
+// We slightly modify the function above as it returns with [-179, 179] due to
+// integer approximations. We instead propose to use:
+//
+//     acos(x) ≈ 90 + (ax + bx³) / (0.999999f + cx² + dx⁴)
+//
+// Note that if `hypot` is 0, the result is undefined. `hypot` is assumed to be
+// properly computed, and in particular, always greater than `x`.
 inline int iacos3(int x, int y, int hypot) {
-  constexpr const float A = -0.698131700f;
-  constexpr const float B = -0.872664625f;
-  constexpr const float C = A + B;
-  constexpr const float D = 180.f / M_PI;
+  constexpr const float A = -53.807358428;
+  constexpr const float B = 52.814341583;
+  constexpr const float C = -1.284590624;
+  constexpr const float D = 0.295624145;
   float f = float(x) / float(hypot);
-  f = (A * f * f + B) * f - C;
-  int r = (D * f);
+  float f2 = f * f;
+  float q = f * (A + B * f2);
+  float d = 0.999999f + f2 * (C + D * f2);
+  int r = 90 + int(q / d);
   return isgn(y, r);
 }
 
 // Return an angle in degree for the value of the adjacent length `x`, the
-// opposite length`y` with less than 3% error.
+// opposite length`y` with less than 0.5% error.
 //
 inline int iacos2(int x, int y) {
   return iacos3(x, y, ihyp(x, y));
@@ -226,20 +242,7 @@ constexpr inline int magsq(const Vec2& a)
 inline int distsq(const Vec2& a, const Vec2& b)
 { return magsq(a - b); }
 
-// Square root can't be computed on integers, but there's a fast convergent
-// approximation with few iterations only: Newton's method.
-//
-//   - start at Manhattan magnitude (a.k.a taxicab metric)
-//   - we know values are necessarily positive, so add +1 to avoid div by 0
-//   - do 3 iterations of Newton's method
-inline int mag(const Vec2& a)
-{
-  int S = magsq(a);
-  int m = iabs(x(a)) + iabs(y(a));
-  m = (sq(m) + S) / (2 * m + 1);
-  m = (sq(m) + S) / (2 * m + 1);
-  return (sq(m) + S) / (2 * m + 1);
-}
+inline int mag(const Vec2& a) { return ihyp(x(a), y(a)); }
 
 // Similar to mag, normalize cares to:
 //
@@ -432,17 +435,17 @@ struct BasicDragModel
 // break distance under drag in any phyical model.
 struct CoastingAction
 {
-  Ray2 operator() (const Particle& p) const { return {angle(ray(spd(p))), 0}; }
+  Ray2 operator() (const Particle& p) const { return {orient(p), 0}; }
 };
 
 // ConstantAction just makes the particle accelerate with a constant thrust
 // applied in the same direction. Good for tests.
 struct ConstantAction
 {
-  ConstantAction(const Vec2& thrust) : _thrust(thrust) { }
-  Ray2 operator() (const Particle&) const { return ray(_thrust); }
+  ConstantAction(const Vec2& thrust) : _thrust(ray(thrust)) { }
+  Ray2 operator() (const Particle&) const { return _thrust; }
 private:
-  Vec2 _thrust;
+  Ray2 _thrust;
 };
 
 // TargetAction just makes the particle move toward a target with a constant
@@ -460,28 +463,36 @@ private:
   int _thrust;
 };
 
-// ImpTargetAction acts like TargetAction but also tries to compensate its own
-// lateral motion to reach the target faster. This model is only a few lines but
-// can be used to simulate basic bots.
-template<int MAX_CORRECTION> // maximum correction angle
-struct ImpTargetAction
+// AdvTargetAction acts like TargetAction but also tries to compensate its own
+// lateral motion to reach the target in a straighter line. This model is only a
+// few lines but can be used to simulate advanced racing bots.
+template<int MAX_THRUST, int MAX_CORRECTION> // maximum correction angle
+struct AdvTargetAction
 {
-  ImpTargetAction(const Vec2& target, int thrust)
-    : _target(target), _thrust(thrust) { }
+  AdvTargetAction(const Vec2& target, int radius) : _target(target), _radius(radius) { }
   Ray2 operator() (const Particle& p) const {
+    constexpr const int MAX_COMP_ANGLE = 90;  // compensate when facing
+    constexpr const int ACCEL_ANGLE    = 100; // start accelerating
     if (magsq(spd(p)) < 100)
-      return TargetAction(_target, _thrust)(p);
-    Ray2 orient = ray(spd(p));
-    Ray2 base   = ray(_target - pos(p));
-    int  diff   = angle(base) - angle(orient);
-    if (abs(diff) > 100)
-      return TargetAction(_target, _thrust)(p);
-    Ray2 push   = {angle(base) + imin(isgn(diff, MAX_CORRECTION), diff), _thrust};
+      return TargetAction(_target, MAX_THRUST)(p);
+    Ray2 pro    = ray(spd(p));
+    if (magsq(spd(p) + pos(p) - _target) < sq(_radius)
+        && iabs(angle(pro) - orient(p)) < MAX_CORRECTION)
+      { return {angle(pro), MAX_THRUST}; }
+    Ray2 dir    = ray(_target - pos(p));
+    int  pro_d  = angle(dir) - angle(pro);
+    Ray2 push   = dir;
+    if (iabs(pro_d) < MAX_COMP_ANGLE)
+      { angle(push) = angle(dir) + isgn(pro_d, imin(iabs(pro_d), MAX_CORRECTION)); }
+    int  ori_d  = iabs(angle(push) - orient(p));
+    if (ori_d > ACCEL_ANGLE) { rad(push) = 0; }
+    else if (ori_d < MAX_CORRECTION * 2) { rad(push) = MAX_THRUST; }
+    else { rad(push) = isin(((ACCEL_ANGLE - ori_d) * 90) / (ACCEL_ANGLE - MAX_CORRECTION * 2), MAX_THRUST + 1); }
     return push;
   }
 private:
   Vec2 _target;
-  int _thrust;
+  int _radius;
 };
 
 // Physics are modeled with a ThrustModel and a DragModel.
@@ -497,23 +508,23 @@ struct Physics : private ThrustModel, DragModel {
 // `reaction`, `iterate_reaction` and `until_reaction` project actions on
 // particles to compute the future of a particle based on its
 // known present and a phyical model.
-template<typename Action, typename ThrustModel, typename DragModel>
-inline Particle reaction(const Particle& p, const Action& a,
-                          const Physics<ThrustModel, DragModel>& phy) {
-  return phy.thrustModel()(p, vec(a(p)) + phy.dragModel()(p));
+template<typename ThrustModel, typename DragModel>
+inline Particle reaction(const Particle& p, const Vec2& t,
+                         const Physics<ThrustModel, DragModel>& phy) {
+  return phy.thrustModel()(p, t + phy.dragModel()(p));
 }
 
 template<typename Action, typename ThrustModel, typename DragModel>
 inline Particle iterate_reaction(unsigned times, Particle p, const Action& a,
                                  const Physics<ThrustModel, DragModel>& phy) {
-  for (unsigned i = 0; i < times; ++i) { p = reaction(p, a, phy); }
+  for (unsigned i = 0; i < times; ++i) { p = reaction(p, vec(a(p)), phy); }
   return p;
 }
 
 template<typename Action, typename ThrustModel, typename DragModel, typename Predicate>
 inline Particle until_reaction(Particle p, const Action& a, const Predicate& t,
                                const Physics<ThrustModel, DragModel>& phy) {
-  while (!t(p)) { p = reaction(p, a, phy); }
+  while (!t(p)) { p = reaction(p, vec(a(p)), phy); }
   return p;
 }
 
@@ -658,7 +669,6 @@ constexpr inline Vec2 to_centered(const Vec2& v) {
 constexpr inline Vec2 to_local(const Vec2& v) {
   return v + Vec2{MAP_SEMI_WIDTH, MAP_SEMI_HEIGHT};
 }
-
 struct State {
     Particle myPod;
     Particle thPod;
@@ -686,8 +696,8 @@ inline State readState() {
 inline void updateState(State& curr, const State& prev) {
   spd(curr.myPod) = pos(curr.myPod) - pos(prev.myPod);
   spd(curr.thPod) = pos(curr.thPod) - pos(prev.thPod);
-  orient(curr.myPod) = angle(ray(curr.myCpPos - pos(curr.myPod))) + angle(curr.myCpRay);
-  cerr << "Orient " << orient(curr.myPod) << " angle " << angle(curr.myCpRay) << endl;
+  // Unit circle goes clockwise, while orientation is anti-clockwise
+  orient(curr.myPod) = angle(ray(curr.myCpPos - pos(curr.myPod))) - angle(curr.myCpRay);
 }
 
 typedef vector<tuple<Vec2, bool>> CheckPoints;
@@ -699,7 +709,7 @@ inline void thrust(int x, int y, int t) {
 }
 inline void thrust(const Vec2& p, int t) {
   Vec2 l = to_local(p);
-  thrust(x(l), y(l), imin(t, MAX_THRUST));
+  thrust(x(l), y(l), t);
 }
 
 inline void boost(int x, int y) {
@@ -710,11 +720,20 @@ inline void boost(const Vec2& p) {
   boost(x(l), y(l));
 }
 
+inline void shield(int x, int y) {
+    cout << x << " " << y << " SHIELD" << endl;
+}
+inline void shield(const Vec2& p) {
+  Vec2 l = to_local(p);
+  shield(x(l), y(l));
+}
+
 /**
  * Rotation & acceleration test
  **/
 int main()
 {
+  Physics<InstantThrustModel, BasicDragModel<MAX_THRUST, MAX_SPEED>> phys;
   bool boost_used = false;
   History hist(State{Particle{{0, 0}, {0, 0}, 0, POD_RADIUS, POD_MASS},
                      Particle{{0, 0}, {0, 0}, 0, POD_RADIUS, POD_MASS},
@@ -722,15 +741,47 @@ int main()
   auto curr = anchor<0>(hist);
   auto prev = anchor<1>(hist);
   *curr = readState();
-  Ray2 push = ImpTargetAction<MAX_POD_ROTATION>(curr->myCpPos, MAX_THRUST)(curr->myPod);
-  thrust(pos(curr->myPod) + vec({angle(push), 2000}), rad(push));
+  Ray2 push = AdvTargetAction<MAX_THRUST, MAX_POD_ROTATION>(curr->myCpPos, CP_RADIUS - 50)(curr->myPod);
+  if (linear_collide(pos(curr->myPod), pos(curr->thPod),
+                     pos(reaction(curr->myPod, vec(push), phys)),
+                     pos(curr->thPod) + spd(curr->thPod),
+                     sq(POD_RADIUS * 2)) <= sq(POD_RADIUS * 2))
+    {
+      shield(pos(curr->myPod) + vec({angle(push), 2000}));
+    }
+  if (iabs(angle(ray(spd(curr->myPod))) - angle(ray(curr->myCpPos - pos(curr->myPod)))) < MAX_POD_ROTATION
+      && iabs(angle(curr->myCpRay)) < MAX_POD_ROTATION
+      && rad(curr->myCpRay) > 2000
+      && rad(push) == MAX_THRUST) {
+    boost(pos(curr->myPod) + vec({angle(push), 2000}));
+    boost_used = true;
+  }
+  else
+    thrust(pos(curr->myPod) + vec({angle(push), 2000}), rad(push));
+
   // game loop
   while (1) {
     hist.rotate();
     *curr = readState();
     updateState(*curr, *prev);
-    Ray2 push = ImpTargetAction<MAX_POD_ROTATION>(curr->myCpPos, MAX_THRUST)(curr->myPod);
-    thrust(pos(curr->myPod) + vec({angle(push), 2000}), rad(push));
+    Ray2 push = AdvTargetAction<MAX_THRUST, MAX_POD_ROTATION>(curr->myCpPos, CP_RADIUS - 50)(curr->myPod);
+    if (linear_collide(pos(curr->myPod), pos(curr->thPod),
+                       pos(reaction(curr->myPod, vec(push), phys)),
+                       pos(curr->thPod) + spd(curr->thPod),
+                       sq(POD_RADIUS * 2)) <= sq(POD_RADIUS * 2))
+      {
+        shield(pos(curr->myPod) + vec({angle(push), 2000}));
+      }
+    if (!boost_used
+        && iabs(angle(ray(spd(curr->myPod))) - angle(ray(curr->myCpPos - pos(curr->myPod)))) < MAX_POD_ROTATION
+        && iabs(angle(curr->myCpRay)) < MAX_POD_ROTATION
+        && rad(curr->myCpRay) > 2000
+        && rad(push) == MAX_THRUST) {
+      boost(pos(curr->myPod) + vec({angle(push), 2000}));
+      boost_used = true;
+    }
+    else
+      thrust(pos(curr->myPod) + vec({angle(push), 2000}), rad(push));
     cerr << "Last pos " << pos(prev->myPod) << " Curr pos " << pos(curr->myPod) << endl;
     cerr << "Speed " << spd(curr->myPod) << " (" << mag(spd(curr->myPod)) << ")" << endl;
     cerr << "Accel " << spd(curr->myPod) - spd(prev->myPod) << " (" << mag(spd(curr->myPod) - spd(prev->myPod)) << ")" << endl;
