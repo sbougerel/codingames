@@ -320,12 +320,27 @@ inline std::ostream& operator<< (std::ostream& o, const Ray2& a) {
   return o << "Ray2({" << angle(a) << ", " << rad(a) << "})";
 }
 
-inline Ray2 norm(const Ray2& a) { return {angle(a) % 360, rad(a)}; }
+// Angular norm: angle expressed between [-180, 180]
+inline int anorm(int a) {
+  a = a % 360;
+  return isgv(180 - iabs(a), a, a - isgn(a, 360));
+}
+
+inline Ray2 norm(const Ray2& a) { return {anorm(angle(a)), rad(a)}; }
 
 inline Vec2 vec(const Ray2& a) { return Vec2{ icos(angle(a), rad(a)), isin(angle(a), rad(a)) }; }
 inline Ray2 ray(const Vec2& a) {
   int r = mag(a);
   return (r == 0) ? Ray2{0, 0} : Ray2{iacos3(x(a), y(a), r), r};
+}
+
+// Angular difference is always expressed between [-180, 180]
+inline int adiff(int a, int b) { return anorm(a - b); }
+
+// Angular distance is always expressed between [0, 180]
+inline int adist(int a, int b) {
+  a = iabs(a - b) % 360;
+  return isgv(180 - a, a, 360 - a);
 }
 
 // The Particle object with the necessary trait accessors are defined below
@@ -471,23 +486,25 @@ struct AdvTargetAction
 {
   AdvTargetAction(const Vec2& target, int radius) : _target(target), _radius(radius) { }
   Ray2 operator() (const Particle& p) const {
-    constexpr const int MAX_COMP_ANGLE = 90;  // compensate when facing
-    constexpr const int ACCEL_ANGLE    = 100; // start accelerating
-    if (magsq(spd(p)) < 100)
+    constexpr const int FULL_COMP_ANGLE = 90;  // angle of full acceleration
+    constexpr const int INIT_COMP_ANGLE = 100; // angle of initial acceleration
+    if (magsq(spd(p)) < 100)                   // at low speed, straight to target
       return TargetAction(_target, MAX_THRUST)(p);
     Ray2 pro    = ray(spd(p));
     if (magsq(spd(p) + pos(p) - _target) < sq(_radius)
-        && iabs(angle(pro) - orient(p)) < MAX_CORRECTION)
-      { return {angle(pro), MAX_THRUST}; }
+        && adist(angle(pro), orient(p)) < MAX_CORRECTION)
+      { return {angle(pro), MAX_THRUST}; }    // about to arrive
     Ray2 dir    = ray(_target - pos(p));
-    int  pro_d  = angle(dir) - angle(pro);
+    int pro_d   = adiff(angle(dir), angle(pro));
     Ray2 push   = dir;
-    if (iabs(pro_d) < MAX_COMP_ANGLE)
+    if (iabs(pro_d) < FULL_COMP_ANGLE)        // apply angular correction
       { angle(push) = angle(dir) + isgn(pro_d, imin(iabs(pro_d), MAX_CORRECTION)); }
-    int  ori_d  = iabs(angle(push) - orient(p));
-    if (ori_d > ACCEL_ANGLE) { rad(push) = 0; }
-    else if (ori_d < MAX_CORRECTION * 2) { rad(push) = MAX_THRUST; }
-    else { rad(push) = isin(((ACCEL_ANGLE - ori_d) * 90) / (ACCEL_ANGLE - MAX_CORRECTION * 2), MAX_THRUST + 1); }
+    int abs_d   = adist(angle(dir), angle(ray(_target - (pos(p) + spd(p)))));
+    int ori_d   = adist(angle(push), orient(p));
+    // Push when correctly oriented, not before.
+    if (ori_d > INIT_COMP_ANGLE - abs_d) { rad(push) = 0; }
+    else if (ori_d < FULL_COMP_ANGLE - abs_d) { rad(push) = MAX_THRUST; }
+    else { rad(push) = ((ori_d - (FULL_COMP_ANGLE - abs_d)) * MAX_THRUST) / (INIT_COMP_ANGLE - FULL_COMP_ANGLE); }
     return push;
   }
 private:
@@ -551,8 +568,8 @@ collide_two(Particle a0, Particle b0, const ActionA& ma, const ActionB& mb,
     { return std::make_tuple(sqrad, best_approach, 0); }
   int i = 0;
   for (; i < max_iter; ++i) {
-    Particle a1 = reaction(a0, ma, phy);
-    Particle b1 = reaction(b0, mb, phy);
+    Particle a1 = reaction(a0, vec(ma(a0)), phy);
+    Particle b1 = reaction(b0, vec(mb(b0)), phy);
     if (!within(bb, pos(a1)) || !within(bb, pos(b1))) break;
     int approach = linear_collide(pos(a0), pos(b0), pos(a1), pos(b1), sqrad);
     if (approach <= sqrad)

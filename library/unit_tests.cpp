@@ -138,6 +138,44 @@ BOOST_AUTO_TEST_CASE(test_ring_move){
   BOOST_CHECK_EQUAL(r1.items()[1], 0);
 }
 
+BOOST_AUTO_TEST_CASE(test_anorm){
+  BOOST_CHECK_EQUAL(0,    anorm(0));
+  BOOST_CHECK_EQUAL(0,    anorm(360));
+  BOOST_CHECK_EQUAL(180,  anorm(180));
+  BOOST_CHECK_EQUAL(-179, anorm(181));
+  BOOST_CHECK_EQUAL(0,    anorm(-360));
+  BOOST_CHECK_EQUAL(-180, anorm(-180));
+  BOOST_CHECK_EQUAL(179,  anorm(-181));
+  BOOST_CHECK_EQUAL(90,   anorm(90));
+  BOOST_CHECK_EQUAL(-90,  anorm(-90));
+  BOOST_CHECK_EQUAL(90,   anorm(450));
+  BOOST_CHECK_EQUAL(-90,  anorm(-450));
+}
+
+BOOST_AUTO_TEST_CASE(test_adiff){
+  BOOST_CHECK_EQUAL(0,    adiff(0, 0));
+  BOOST_CHECK_EQUAL(0,    adiff(0, 360));
+  BOOST_CHECK_EQUAL(0,    adiff(0, -360));
+  BOOST_CHECK_EQUAL(0,    adiff(360, 0));
+  BOOST_CHECK_EQUAL(0,    adiff(-360, 0));
+  BOOST_CHECK_EQUAL(180,  adiff(180, 0));
+  BOOST_CHECK_EQUAL(-180,  adiff(-180, 0));
+  BOOST_CHECK_EQUAL(180,  adiff(0, -180));
+  BOOST_CHECK_EQUAL(-180, adiff(0, 180));
+}
+
+BOOST_AUTO_TEST_CASE(test_adist){
+  BOOST_CHECK_EQUAL(0,    adist(0, 0));
+  BOOST_CHECK_EQUAL(0,    adist(0, 360));
+  BOOST_CHECK_EQUAL(0,    adist(0, -360));
+  BOOST_CHECK_EQUAL(0,    adist(360, 0));
+  BOOST_CHECK_EQUAL(0,    adist(-360, 0));
+  BOOST_CHECK_EQUAL(180,  adist(180, 0));
+  BOOST_CHECK_EQUAL(180,  adist(-180, 0));
+  BOOST_CHECK_EQUAL(180,  adist(0, -180));
+  BOOST_CHECK_EQUAL(180,  adist(0, 180));
+}
+
 BOOST_AUTO_TEST_CASE(test_ray2_norm){
   BOOST_CHECK_EQUAL(Ray2({0, 0}),   norm(Ray2{0, 0}));
   BOOST_CHECK_EQUAL(Ray2({0, 0}),   norm(Ray2{360, 0}));
