@@ -665,11 +665,13 @@ using std::cerr;
 using std::endl;
 using std::tuple;
 using std::vector;
+using std::array;
 
 constexpr const int MAX_THRUST       = 100;
+constexpr const int BOOST_THRUST     = 650;
 constexpr const int MAX_SPEED        = 660; // fast compute drag
+constexpr const float POD_MASS       = .5f;
 constexpr const int POD_RADIUS       = 400;
-constexpr const int POD_MASS         = 1;
 constexpr const int CP_RADIUS        = 600;
 constexpr const int MAP_WIDTH        = 16000;
 constexpr const int MAP_HEIGHT       = 9000;
@@ -686,38 +688,56 @@ constexpr inline Vec2 to_centered(const Vec2& v) {
 constexpr inline Vec2 to_local(const Vec2& v) {
   return v + Vec2{MAP_SEMI_WIDTH, MAP_SEMI_HEIGHT};
 }
+
 struct State {
-    Particle myPod;
-    Particle thPod;
-    Vec2     myCpPos;
-    Ray2     myCpRay;
+  array<Particle, 4> pods;
+  array<int, 4> cps;
 };
 
-inline State readState() {
-  int x;
-  int y;
-  int nextCheckpointX; // x position of the next check point
-  int nextCheckpointY; // y position of the next check point
-  int nextCheckpointDist; // distance to the next checkpoint
-  int nextCheckpointAngle; // angle between your pod orientation and the direction of the next checkpoint
-  cin >> x >> y >> nextCheckpointX >> nextCheckpointY >> nextCheckpointDist >> nextCheckpointAngle; cin.ignore();
-  int opponentX;
-  int opponentY;
-  cin >> opponentX >> opponentY; cin.ignore();
-  return State{Particle{to_centered({x, y}), {0, 0}, 0, POD_RADIUS, POD_MASS},
-               Particle{to_centered({opponentY, opponentY}), {0, 0}, 0, POD_RADIUS, POD_MASS},
-               to_centered({nextCheckpointX, nextCheckpointY}),
-               Ray2{nextCheckpointAngle, nextCheckpointDist}};
+enum { my1 = 0, my2 = 1, th1 = 2, th2 = 3 };
+
+inline State initState() {
+  State s;
+  for (int i = 0; i < 4; ++i) {
+    s.pods[i] = {{0, 0}, {0, 0}, 0, POD_RADIUS, POD_MASS};
+    s.cps[i] = 0;
+  }
+  return s;
 }
 
-inline void updateState(State& curr, const State& prev) {
-  spd(curr.myPod) = pos(curr.myPod) - pos(prev.myPod);
-  spd(curr.thPod) = pos(curr.thPod) - pos(prev.thPod);
-  // Unit circle goes clockwise, while orientation is anti-clockwise
-  orient(curr.myPod) = angle(ray(curr.myCpPos - pos(curr.myPod))) - angle(curr.myCpRay);
+inline State& readState(State& s) {
+  for (int i = 0; i < 4; ++i) {
+    int x;
+    int y;
+    int vx;
+    int vy;
+    int angle;
+    int nextCpId;
+    cin >> x >> y >> vx >> vy >> angle >> nextCpId; cin.ignore();
+    s.pods[i] = {to_centered({x, y}), {vx, vy}, angle, POD_RADIUS, POD_MASS};
+    s.cps[i] = nextCpId;
+  }
+  return s;
 }
 
-typedef vector<tuple<Vec2, bool>> CheckPoints;
+struct Map {
+  int numLaps;
+  vector<Vec2> cps;
+};
+
+inline Map readMap() {
+  Map m;
+  cin >> m.numLaps; cin.ignore();
+  int checkPointCount;
+  cin >> checkPointCount; cin.ignore();
+  m.cps.reserve(checkPointCount);
+  for (int i = 0; i < checkPointCount; ++i) {
+    int x, y;
+    cin >> x >> y; cin.ignore();
+    m.cps.push_back(to_centered({x, y}));
+  }
+  return m;
+}
 
 typedef Ring<State, 3> History;
 
@@ -751,14 +771,16 @@ inline void shield(const Vec2& p) {
 int main()
 {
   Physics<InstantThrustModel, BasicDragModel<MAX_THRUST, MAX_SPEED>> phys;
+  Map map = readMap();
   bool boost_used = false;
-  History hist(State{Particle{{0, 0}, {0, 0}, 0, POD_RADIUS, POD_MASS},
-                     Particle{{0, 0}, {0, 0}, 0, POD_RADIUS, POD_MASS},
-                     {0, 0}, {0, 0}});
+  History hist(initState());
   auto curr = anchor<0>(hist);
   auto prev = anchor<1>(hist);
-  *curr = readState();
-  Ray2 push = AdvTargetAction<MAX_THRUST, MAX_POD_ROTATION>(curr->myCpPos, CP_RADIUS - 50)(curr->myPod);
+  readState(*curr);
+  Ray2 push = AdvTargetAction<MAX_THRUST, MAX_POD_ROTATION>(map.cps[curr->cps[my1]], CP_RADIUS - 50)(curr->pods[my1]);
+  thrust(pos(curr->pods[my1]) + vec({angle(push), 2000}), rad(push));
+  push = AdvTargetAction<MAX_THRUST, MAX_POD_ROTATION>(map.cps[curr->cps[my2]], CP_RADIUS - 50)(curr->pods[my2]);
+  thrust(pos(curr->pods[my2]) + vec({angle(push), 2000}), rad(push));
   // if (linear_collide(pos(curr->myPod), pos(curr->thPod),
   //                    pos(reaction(curr->myPod, vec(push), phys)),
   //                    pos(curr->thPod) + spd(curr->thPod),
@@ -767,22 +789,24 @@ int main()
   //     shield(pos(curr->myPod) + vec({angle(push), 2000}));
   //   }
   // else
-    if (iabs(angle(ray(spd(curr->myPod))) - angle(ray(curr->myCpPos - pos(curr->myPod)))) < MAX_POD_ROTATION
-        && iabs(angle(curr->myCpRay)) < MAX_POD_ROTATION
-        && rad(curr->myCpRay) > 2000
-        && rad(push) == MAX_THRUST) {
-      boost(pos(curr->myPod) + vec({angle(push), 2000}));
-      boost_used = true;
-    }
-    else
-      thrust(pos(curr->myPod) + vec({angle(push), 2000}), rad(push));
+  // if (iabs(angle(ray(spd(curr->myPod))) - angle(ray(curr->myCpPos - pos(curr->myPod)))) < MAX_POD_ROTATION
+  //     && iabs(angle(curr->myCpRay)) < MAX_POD_ROTATION
+  //     && rad(curr->myCpRay) > 2000
+  //     && rad(push) == MAX_THRUST) {
+  //   boost(pos(curr->myPod) + vec({angle(push), 2000}));
+  //   boost_used = true;
+  // }
+  // else
+  //   thrust(pos(curr->myPod) + vec({angle(push), 2000}), rad(push));
 
   // game loop
   while (1) {
     hist.rotate();
-    *curr = readState();
-    updateState(*curr, *prev);
-    Ray2 push = AdvTargetAction<MAX_THRUST, MAX_POD_ROTATION>(curr->myCpPos, CP_RADIUS - 50)(curr->myPod);
+    readState(*curr);
+    push = AdvTargetAction<MAX_THRUST, MAX_POD_ROTATION>(map.cps[curr->cps[my1]], CP_RADIUS - 50)(curr->pods[my1]);
+    thrust(pos(curr->pods[my1]) + vec({angle(push), 2000}), rad(push));
+    push = AdvTargetAction<MAX_THRUST, MAX_POD_ROTATION>(map.cps[curr->cps[my2]], CP_RADIUS - 50)(curr->pods[my2]);
+    thrust(pos(curr->pods[my2]) + vec({angle(push), 2000}), rad(push));
     // if (linear_collide(pos(curr->myPod), pos(curr->thPod),
     //                    pos(reaction(curr->myPod, vec(push), phys)),
     //                    pos(curr->thPod) + spd(curr->thPod),
@@ -791,19 +815,21 @@ int main()
     //     shield(pos(curr->myPod) + vec({angle(push), 2000}));
     //   }
     // else
-      if (!boost_used
-          && iabs(angle(ray(spd(curr->myPod))) - angle(ray(curr->myCpPos - pos(curr->myPod)))) < MAX_POD_ROTATION
-          && iabs(angle(curr->myCpRay)) < MAX_POD_ROTATION
-          && rad(curr->myCpRay) > 2000
-          && rad(push) == MAX_THRUST) {
-        boost(pos(curr->myPod) + vec({angle(push), 2000}));
-        boost_used = true;
-      }
-      else
-        thrust(pos(curr->myPod) + vec({angle(push), 2000}), rad(push));
-    cerr << "Last pos " << pos(prev->myPod) << " Curr pos " << pos(curr->myPod) << endl;
-    cerr << "Speed " << spd(curr->myPod) << " (" << mag(spd(curr->myPod)) << ")" << endl;
-    cerr << "Accel " << spd(curr->myPod) - spd(prev->myPod) << " (" << mag(spd(curr->myPod) - spd(prev->myPod)) << ")" << endl;
-    cerr << "Rotated " << angle(curr->myCpRay) - angle(prev->myCpRay) << endl;
+    // if (!boost_used
+    //     && iabs(angle(ray(spd(curr->myPod))) - angle(ray(curr->myCpPos - pos(curr->myPod)))) < MAX_POD_ROTATION
+    //     && iabs(angle(curr->myCpRay)) < MAX_POD_ROTATION
+    //     && rad(curr->myCpRay) > 2000
+    //     && rad(push) == MAX_THRUST) {
+    //   boost(pos(curr->myPod) + vec({angle(push), 2000}));
+    //   boost_used = true;
+    // }
+    // else
+    //   thrust(pos(curr->myPod) + vec({angle(push), 2000}), rad(push));
+    cerr << "Checkpoint\t" << map.cps[curr->cps[my1]] << "\t" << map.cps[curr->cps[my1]] << endl;
+    cerr << "Pos\t\t"   << pos(curr->pods[my1]) << "\t" << pos(curr->pods[my2]) << endl;
+    cerr << "Speed\t\t" << spd(curr->pods[my1]) << "(" << mag(spd(curr->pods[my1])) << ")\t"
+         << spd(curr->pods[my2]) << "(" << mag(spd(curr->pods[my2])) << ")" << endl;
+    cerr << "Accel\t\t" << spd(curr->pods[my1]) - spd(prev->pods[my1]) << "\t" << spd(curr->pods[my2]) - spd(prev->pods[my2]) << endl;
+    cerr << "Rotated\t" << orient(curr->pods[my1]) - orient(prev->pods[my1]) << "\t" << orient(curr->pods[my2]) - orient(prev->pods[my2]) << endl;
   }
 }

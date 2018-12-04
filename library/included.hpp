@@ -434,6 +434,15 @@ struct VaccumDragModel
   Vec2 operator() (const Particle&) const { return {0, 0}; }
 };
 
+// This simple model is the most common.
+template<float REDUCTION>
+struct SimpleDragModel
+{
+  Vec2 operator() (const Particle& p) const {
+    return norm(-spd(p), (mag(spd(p)) * MAX_THRUST) / MAX_VELOCITY);
+  }
+};
+
 // This simple model seem to be present in several puzzles. For a given type of
 // vehicle, it models drag as a ratio of the terminal velocity of the vehicle in
 // the medium, applied to the maximum thrust of the vehicle. This ensures that
